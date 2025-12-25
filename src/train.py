@@ -1,11 +1,15 @@
 import argparse
 import os
 import pickle
+from google.auth import default
+from google.cloud import storage
+import requests
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
+from google.cloud import storage
 
 
 COLUMNS = [
@@ -63,8 +67,45 @@ def main():
     df = load_data()
     model, scaler = train_model(df)
 
-    with open(os.path.join(args.model_dir, "model.pkl"), "wb") as f:
+    local_model_path = "/tmp/model.pkl"
+
+    with open(local_model_path, "wb") as f:
         pickle.dump({"model": model, "scaler": scaler}, f)
+
+    if args.model_dir.startswith("gs://"):
+        parts = args.model_dir.replace("gs://", "").split("/", 1)
+        bucket_name = parts[0]
+        # Handle cases where there might not be a subfolder path
+        blob_path = parts[1] + "/model.pkl" if len(parts) > 1 else "model.pkl"
+
+        print("\n====== GCP RUNTIME DEBUG ======")
+
+        # What credentials are we using?
+        creds, project = default()
+        print("Default project from credentials:", project)
+        print("Credential type:", type(creds))
+
+        # What service account is this pod running as?
+        try:
+            r = requests.get(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+                headers={"Metadata-Flavor": "Google"},
+                timeout=2,
+            )
+            print("Pod service account:", r.text)
+        except Exception as e:
+            print("Metadata server error:", e)
+
+        # What project does GCS client believe?
+        client = storage.Client()
+        print("GCS client project:", client.project)
+
+        print("====== END DEBUG ======\n")
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_filename(local_model_path)
 
     print("Model saved successfully")
 
