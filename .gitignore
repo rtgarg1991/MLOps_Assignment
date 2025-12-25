@@ -1,0 +1,83 @@
+# ======================
+# Python
+# ======================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+ENV/
+env/
+pip-wheel-metadata/
+
+# ======================
+# Data & Models
+# ======================
+data/
+*.csv
+*.pkl
+*.joblib
+*.h5
+models/
+artifacts/
+
+# ======================
+# Jupyter / ML
+# ======================
+.ipynb_checkpoints/
+mlruns/
+wandb/
+
+# ======================
+# Environment & Secrets
+# ======================
+.env
+.env.*
+*.key
+*.json
+*.pem
+credentials/
+secrets/
+
+# ======================
+# Docker
+# ======================
+*.tar
+docker-compose.override.yml
+
+# ======================
+# GCP & Terraform
+# ======================
+.terraform/
+*.tfstate
+*.tfstate.*
+.gcloud/
+
+# ======================
+# Kubernetes
+# ======================
+kubeconfig
+*.kubeconfig
+
+# ======================
+# OS & Editor
+# ======================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ======================
+# Reports & Docs (Local Only)
+# ======================
+IMPLEMENTATION_PLAN.md
+screenshots/
+reports/
+docs/
