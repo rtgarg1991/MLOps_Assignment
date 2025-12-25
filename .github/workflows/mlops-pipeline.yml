@@ -17,7 +17,26 @@ env:
   ZONE: us-central1-a
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.filter.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            build:
+              - 'src/**'
+              - 'data/**'
+              - 'Dockerfile.train'
+              - 'Dockerfile.serve'
+              - 'requirements.txt'
+
   build-train-deploy:
+    needs: changes
     runs-on: ubuntu-latest
 
     steps:
@@ -46,6 +65,7 @@ jobs:
 
     # Build & Push Training Image
     - name: Build & Push Trainer Image
+      if: needs.changes.outputs.should_build == 'true'
       run: |
         docker build -f Dockerfile.train -t $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest .
         docker push $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest
@@ -72,7 +92,8 @@ jobs:
     # Download trained model
     - name: Download model
       run: |
-        gsutil cp gs://$BUCKET_NAME/latest/model.pkl model.pkl
+        mkdir -p models
+        gsutil cp gs://$BUCKET_NAME/latest/model.pkl models/model.pkl
 
     # Build & Push Serving Image
     - name: Build & Push API Image
