@@ -20,7 +20,6 @@ pip-wheel-metadata/
 # ======================
 # Data & Models
 # ======================
-data/
 *.csv
 *.pkl
 *.joblib
