@@ -24,14 +24,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 🧪 Debug secrets presence
+    # Debug secrets presence
     - name: Debug secrets
       run: |
         echo "PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}"
         echo "SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}"
         echo "WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}"
 
-    # 🔐 Authenticate using Workload Identity
+    # Authenticate using Workload Identity
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -44,39 +44,43 @@ jobs:
     - name: Configure Docker
       run: gcloud auth configure-docker $REGION-docker.pkg.dev
 
-    # 🐳 Build & Push Training Image
+    # Build & Push Training Image
     - name: Build & Push Trainer Image
       run: |
         docker build -f Dockerfile.train -t $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest .
         docker push $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest
 
-    # 🧠 Get GKE credentials
+    # Get GKE credentials
     - name: Get GKE credentials
       run: |
         gcloud container clusters get-credentials $CLUSTER_NAME --zone $ZONE --project ${{ secrets.GCP_PROJECT_ID }}
 
-    # 🧪 Trigger Training Job on GKE
+    - name: Install GKE auth plugin
+      run: |
+        gcloud components install gke-gcloud-auth-plugin --quiet
+
+    # Trigger Training Job on GKE
     - name: Run training job
       run: |
         kubectl apply -f k8s/training-job.yaml
 
-    # ⏳ Wait for job to finish
+    # Wait for job to finish
     - name: Wait for training job
       run: |
         kubectl wait --for=condition=complete job/heart-model-training --timeout=10m
 
-    # 📦 Download trained model
+    # Download trained model
     - name: Download model
       run: |
         gsutil cp gs://$BUCKET_NAME/latest/model.pkl model.pkl
 
-    # 🐳 Build & Push Serving Image
+    # Build & Push Serving Image
     - name: Build & Push API Image
       run: |
         docker build -f Dockerfile.serve -t $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/heart-api:latest .
         docker push $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/heart-api:latest
 
-    # 🚀 Deploy to GKE
+    # Deploy to GKE
     - name: Deploy API
       run: |
         kubectl apply -f k8s/
