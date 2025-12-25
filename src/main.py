@@ -10,11 +10,17 @@ MODEL_PATH = os.path.join(os.getcwd(), "models/model.pkl")
 # Global variables for model and scaler
 model_artifacts = None
 
+class DummyScaler:
+    def transform(self, X):
+        return X
+
 class DummyModel:
     def predict(self, X):
+        import numpy as np
         return np.array([1])
 
     def predict_proba(self, X):
+        import numpy as np
         return np.array([[0.05, 0.95]])
 
 @asynccontextmanager
@@ -29,7 +35,7 @@ async def lifespan(app: FastAPI):
         print("WARNING: Using dummy model for CI")
         model_artifacts = {
             "model": DummyModel(),
-            "scaler": lambda x: x
+            "scaler": DummyScaler()
         }
 
     yield
