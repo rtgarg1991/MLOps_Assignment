@@ -65,7 +65,7 @@ jobs:
           gcloud ai custom-jobs create \
             --region=${{ env.REGION }} \
             --display-name="heart-disease-training-${{ github.sha }}" \
-            --worker-pool-spec="machine-type=n1-standard-4,container-image-uri=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.TRAINER_IMAGE }}:latest" \
+            --worker-pool-spec="machine-type=custom-1-2048,replica-count=1,container-image-uri=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.TRAINER_IMAGE }}:latest" \
             --args="--model-dir","/gcs/${{ env.BUCKET_NAME }}/model"
 
       # Note: In a real production pipeline, you would wait for the job to complete.
