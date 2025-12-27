@@ -85,10 +85,10 @@ def main():
             loaded_models[model_name] = joblib.load(model_path)
             print(f"Loaded model → {model_path}")
         else:
-            print(f"⚠️ Model not found: {model_path} (skipping load)")
+            print(f"Model not found: {model_path} (skipping load)")
 
     if not loaded_models:
-        print("⚠️ No trained models found to load (metadata will still be saved)")
+        print("No trained models found to load (metadata will still be saved)")
 
     # ---------- Save metadata ----------
     metadata_path = serialize_metadata(feature_names, metrics_df)
