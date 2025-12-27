@@ -1,0 +1,15 @@
+isExperimental: false
+
+algorithm:
+  name: random_forest   # logistic_regression | random_forest
+
+parameters:
+  logistic_regression:
+    solver: liblinear
+    max_iter: 1000
+    random_state: 42
+
+  random_forest:
+    n_estimators: 200
+    max_depth: 8
+    random_state: 42
