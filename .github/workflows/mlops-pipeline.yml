@@ -97,16 +97,31 @@ jobs:
     - name: Set Variables
       id: vars
       run: |
+        # 1. Short SHA
         echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
         
-        # Logic to get PR Number
+        # 2. Determine PR Number & Mode
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "Event is Pull Request. Using Number: ${{ github.event.number }}"
           echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
           echo "MODE=experiment" >> $GITHUB_ENV
         else
-          # On Merge (Push), try to extract PR number from commit message
-          # Commit msg format: "Merge pull request #12 from ..."
-          PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
+          echo "Event is Push. Checking commit message for PR number..."
+          # Get commit message
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit Message: $COMMIT_MSG"
+          
+          # Try to extract number (looks for #123)
+          PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
+          
+          # Force default to 0 if empty
+          if [ -z "$PR_NUM" ]; then
+            echo "No PR number found. Defaulting to 0."
+            PR_NUM="0"
+          else
+            echo "Found PR Number: $PR_NUM"
+          fi
+          
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
