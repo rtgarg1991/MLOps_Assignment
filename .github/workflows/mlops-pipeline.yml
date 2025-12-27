@@ -9,6 +9,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  pull-requests: write
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -24,7 +25,6 @@ env:
 
 jobs:
   # 1. DETECT CHANGES
-  # Identifies which files changed to trigger only necessary steps
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -44,7 +44,6 @@ jobs:
           train: ['src/train.py']
 
   # 2. BUILD TRAINER IMAGE
-  # Runs only if any ML code or data changed
   build-trainer:
     needs: changes
     if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'push' }}
@@ -68,10 +67,8 @@ jobs:
         docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
   # 3. RUN PIPELINE JOBS
-  # Orchestrates the modular scripts on GKE
   run-pipeline:
     needs: [changes, build-trainer]
-    # Always run if we built an image, or if it's a merge to main (to run promotion)
     if: ${{ always() && (needs.build-trainer.result == 'success' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     
@@ -99,7 +96,7 @@ jobs:
       run: |
         # 1. Short SHA
         echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
-        
+
         # 2. Determine PR Number & Mode
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
           echo "Event is Pull Request. Using Number: ${{ github.event.number }}"
@@ -110,10 +107,10 @@ jobs:
           # Get commit message
           COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "Commit Message: $COMMIT_MSG"
-          
+  
           # Try to extract number (looks for #123)
           PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
-          
+  
           # Force default to 0 if empty
           if [ -z "$PR_NUM" ]; then
             echo "No PR number found. Defaulting to 0."
@@ -121,7 +118,7 @@ jobs:
           else
             echo "Found PR Number: $PR_NUM"
           fi
-          
+  
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
@@ -134,7 +131,7 @@ jobs:
         export CMD='["python", "src/ingest.py"]'
         export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
-        
+
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
@@ -146,7 +143,7 @@ jobs:
         export CMD='["python", "src/pre-processing.py"]'
         export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
-        
+
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
@@ -158,7 +155,7 @@ jobs:
         export CMD='["python", "src/feature_engineering.py"]'
         export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
-        
+
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
@@ -171,7 +168,7 @@ jobs:
         export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
         # Use latest image or specific SHA if available
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
-        
+
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
@@ -183,41 +180,72 @@ jobs:
         export MODE=${MODE}
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
-        
+
         # FIX: Pass specific variables to envsubst so it ignores $JOB_COMPLETION_INDEX and $MODEL_TYPE
         envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
-        
+
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
-    # --- F. REPORT RESULTS TO PR (New Step) ---
+    # --- F. REPORT RESULTS TO PR (UPDATED: Uses Log Scraper) ---
     - name: Comment Results on PR
-      # Only run on Pull Requests, not on push to main
       if: github.event_name == 'pull_request'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # 1. Query BigQuery for the latest results of this PR
-        # We fetch the top 2 rows sorted by timestamp desc to get the run we just finished
-        bq query --nouse_legacy_sql --format=json \
-          "SELECT model_type, accuracy, run_id FROM \`$PROJECT_ID.ml_metadata.experiments\` WHERE pr_number = $PR_NUMBER ORDER BY timestamp DESC LIMIT 2" > results.json
+        # 1. Get all Pod names associated with this Job
+        JOB_NAME=train-$SHORT_SHA
+        PODS=$(kubectl get pods -l job-name=$JOB_NAME -o name)
 
-        # 2. Parse JSON and format Markdown Table using Python one-liner
-        # Generates a file body.md
+        if [ -z "$PODS" ]; then
+          echo "No pods found for job $JOB_NAME"
+          exit 0
+        fi
+
+        echo "Found pods: $PODS"
+
+        # 2. Extract the JSON line from each pod
+        echo "" > raw_metrics.jsonl
+        for pod in $PODS; do
+            # Grep logic: Finds line starting with __METRICS__: and prints the JSON part
+            kubectl logs $pod | grep "__METRICS__:" | awk -F'__METRICS__:' '{print $2}' >> raw_metrics.jsonl || true
+        done
+
+        # 3. Parse JSON Lines and Generate Markdown Table
         python3 -c "
         import json
+        import sys
+
+        print('### 🧪 Model Training Results (GKE Jobs)')
+        print('| Model Type | Accuracy | Run ID |')
+        print('| :--- | :--- | :--- |')
+
         try:
-            with open('results.json') as f:
-                data = json.load(f)
-            print('### Model Training Results')
-            print('| Model Type | Accuracy | Run ID |')
-            print('| :--- | :--- | :--- |')
-              for row in data:
-                print(f'| {row['model_type']} | {row['accuracy']:.4f} | {row['run_id']} |')
-        except Exception as e:
-            print('No results found or error parsing.')
+            results = []
+            with open('raw_metrics.jsonl') as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        results.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    
+            # Sort by Accuracy Descending
+            results.sort(key=lambda x: x.get('accuracy', 0), reverse=True)
+    
+            if not results:
+                print('| _No metrics found in logs_ | | |')
+            else:
+                for row in results:
+                    m_type = row.get('model_type', 'N/A')
+                    acc = row.get('accuracy', 0.0)
+                    rid = row.get('run_id', 'N/A')
+                    print(f'| {m_type} | {acc:.4f} | {rid} |')
+
+        except FileNotFoundError:
+            print('| _No logs file generated_ | | |')
         " > body.md
 
-        # 3. Post Comment using GitHub CLI (Pre-installed on Runners)
+        # 4. Post Comment
         gh pr comment ${{ github.event.number }} --body-file body.md
 
   # 4. DEPLOY API (Only on Push to Main)
@@ -243,7 +271,6 @@ jobs:
     # --- Download Prod Model ---
     - name: Download Production Model
       run: |
-        # PR_NUMBER logic same as above to find which version to download
         PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
         mkdir -p models
         # Pulling the specific version trained in the previous step

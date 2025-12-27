@@ -1,6 +1,7 @@
 import argparse
 import os
 import pickle
+import json
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -155,7 +156,7 @@ def main():
         }
         log_to_bigquery(project_id, f"{project_id}.ml_metadata.production_models", prod_row)
 
-    # --- UPLOAD MODEL & ARTIFACTS (Fixed Loop) ---
+    # --- UPLOAD MODEL & ARTIFACTS ---
     print(f"Uploading artifacts to {subpath}...")
     
     # 1. Model
@@ -166,6 +167,16 @@ def main():
         blob_path = f"{subpath}/{remote_name}"
         bucket.blob(blob_path).upload_from_filename(local_file)
         print(f" - Uploaded: {remote_name}")
+
+    # --- ADDED: PRINT METRICS FOR GITHUB ACTIONS LOG SCRAPER ---
+    # This allows the runner to see the metrics without needing BigQuery permissions
+    final_metrics = {
+        "run_id": timestamp,
+        "model_type": config["model_type"],
+        "accuracy": metrics["accuracy"],
+        "pr_number": args.pr_number
+    }
+    print(f"__METRICS__:{json.dumps(final_metrics)}")
 
 if __name__ == "__main__":
     main()
