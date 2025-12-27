@@ -47,7 +47,7 @@ jobs:
   # Runs only if any ML code or data changed
   build-trainer:
     needs: changes
-    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
+    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -179,14 +179,14 @@ jobs:
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
-        # Variables needed for parallel-train-job.yaml
         export BUCKET_NAME=${BUCKET_NAME}
         export MODE=${MODE}
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
         
-        # USE THE PARALLEL TEMPLATE
-        envsubst < k8s/parallel-train-job.yaml | kubectl apply -f -
+        # FIX: Pass specific variables to envsubst so it ignores $JOB_COMPLETION_INDEX and $MODEL_TYPE
+        envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
+        
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
     # --- F. REPORT RESULTS TO PR (New Step) ---
@@ -208,7 +208,7 @@ jobs:
         try:
             with open('results.json') as f:
                 data = json.load(f)
-            print('### 🚀 Model Training Results')
+            print('### Model Training Results')
             print('| Model Type | Accuracy | Run ID |')
             print('| :--- | :--- | :--- |')
               for row in data:
@@ -218,7 +218,7 @@ jobs:
         " > body.md
 
         # 3. Post Comment using GitHub CLI (Pre-installed on Runners)
-        gh pr comment ${{ github.event.number }} --body-file body.m
+        gh pr comment ${{ github.event.number }} --body-file body.md
 
   # 4. DEPLOY API (Only on Push to Main)
   deploy-api:
