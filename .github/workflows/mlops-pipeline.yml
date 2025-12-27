@@ -20,7 +20,6 @@ env:
   BUCKET_NAME: mlops-final-001-mlops-artifacts
   CLUSTER_NAME: mlops-cluster
   ZONE: us-central1-a
-  # This namespace must match where you set up the KSA/Workload Identity
   K8S_NAMESPACE: default 
 
 jobs:
@@ -50,8 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
-    # Authenticate to Google Cloud
+
     - id: 'auth'
       uses: 'google-github-actions/auth@v2'
       with:
@@ -71,11 +69,14 @@ jobs:
     needs: [changes, build-trainer]
     if: ${{ always() && (needs.build-trainer.result == 'success' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
-    
+
+    # OUTPUTS: Passing the calculated PR number to the next job
+    outputs:
+      pr_num: ${{ steps.vars.outputs.pr_num_output }}
+
     steps:
     - uses: actions/checkout@v4
 
-    # --- Setup & Auth ---
     - uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -90,40 +91,29 @@ jobs:
     - name: Install envsubst
       run: sudo apt-get install -y gettext-base
 
-    # --- Determine Variables ---
     - name: Set Variables
       id: vars
       run: |
-        # 1. Short SHA
         echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
 
-        # 2. Determine PR Number & Mode
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          echo "Event is Pull Request. Using Number: ${{ github.event.number }}"
           echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+          echo "pr_num_output=${{ github.event.number }}" >> $GITHUB_OUTPUT
           echo "MODE=experiment" >> $GITHUB_ENV
         else
-          echo "Event is Push. Checking commit message for PR number..."
-          # Get commit message
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "Commit Message: $COMMIT_MSG"
-  
-          # Try to extract number (looks for #123)
           PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
   
-          # Force default to 0 if empty
           if [ -z "$PR_NUM" ]; then
-            echo "No PR number found. Defaulting to 0."
             PR_NUM="0"
-          else
-            echo "Found PR Number: $PR_NUM"
           fi
   
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
+          echo "pr_num_output=$PR_NUM" >> $GITHUB_OUTPUT
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
 
-    # --- A. INGESTION (Only if data changed) ---
+    # --- A. INGESTION ---
     - name: Run Ingest
       if: needs.changes.outputs.data == 'true'
       run: |
@@ -135,7 +125,7 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- B. PRE-PROCESSING (If data OR prep script changed) ---
+    # --- B. PRE-PROCESSING ---
     - name: Run Pre-processing
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true'
       run: |
@@ -147,7 +137,7 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- C. FEATURE ENGINEERING (If data, prep OR feat script changed) ---
+    # --- C. FEATURE ENGINEERING ---
     - name: Run Feature Engineering
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true'
       run: |
@@ -159,20 +149,19 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- D. PROMOTION (Only on Push to Main) ---
+    # --- D. PROMOTION ---
     - name: Promote Artifacts to Production
       if: github.event_name == 'push'
       run: |
         export JOB_NAME=promote-$SHORT_SHA
         export CMD='["python", "src/promote.py"]'
         export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
-        # Use latest image or specific SHA if available
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- E. TRAINING (Always runs in PR or Push) ---
+    # --- E. TRAINING ---
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
@@ -181,18 +170,16 @@ jobs:
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
-        # FIX: Pass specific variables to envsubst so it ignores $JOB_COMPLETION_INDEX and $MODEL_TYPE
         envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
 
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
-    # --- F. REPORT RESULTS TO PR (UPDATED: Uses Log Scraper) ---
+    # --- F. REPORT RESULTS TO PR ---
     - name: Comment Results on PR
       if: github.event_name == 'pull_request'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # 1. Get all Pod names associated with this Job
         JOB_NAME=train-$SHORT_SHA
         PODS=$(kubectl get pods -l job-name=$JOB_NAME -o name)
 
@@ -201,16 +188,11 @@ jobs:
           exit 0
         fi
 
-        echo "Found pods: $PODS"
-
-        # 2. Extract the JSON line from each pod
         echo "" > raw_metrics.jsonl
         for pod in $PODS; do
-            # Grep logic: Finds line starting with __METRICS__: and prints the JSON part
             kubectl logs $pod | grep "__METRICS__:" | awk -F'__METRICS__:' '{print $2}' >> raw_metrics.jsonl || true
         done
 
-        # 3. Parse JSON Lines and Generate Markdown Table
         python3 -c "
         import json
         import sys
@@ -228,10 +210,9 @@ jobs:
                         results.append(json.loads(line))
                     except json.JSONDecodeError:
                         continue
-    
-            # Sort by Accuracy Descending
+
             results.sort(key=lambda x: x.get('accuracy', 0), reverse=True)
-    
+
             if not results:
                 print('| _No metrics found in logs_ | | |')
             else:
@@ -245,44 +226,41 @@ jobs:
             print('| _No logs file generated_ | | |')
         " > body.md
 
-        # 4. Post Comment
         gh pr comment ${{ github.event.number }} --body-file body.md
 
-  # 4. DEPLOY API (Only on Push to Main)
+  # 4. DEPLOY API
   deploy-api:
     needs: run-pipeline
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
-    # --- Auth ---
+
     - uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
         service_account: ${{ secrets.GCP_SA_EMAIL }}
-    
+
     - run: gcloud auth configure-docker $REGION-docker.pkg.dev
     - uses: google-github-actions/get-gke-credentials@v2
       with:
         cluster_name: ${{ env.CLUSTER_NAME }}
         location: ${{ env.ZONE }}
 
-    # --- Download Prod Model ---
     - name: Download Production Model
+      # FIX: Using the exact number calculated in the previous job
+      env:
+        PR_NUM: ${{ needs.run-pipeline.outputs.pr_num }}
       run: |
-        PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
+        echo "Using PR_NUM: $PR_NUM"
         mkdir -p models
-        # Pulling the specific version trained in the previous step
         gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
 
-    # --- Build & Push Serving Image ---
     - name: Build & Push API
       run: |
         docker build -f Dockerfile.serve -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest .
         docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest
 
-    # --- Deploy to GKE ---
     - name: Deploy Service
       run: |
         export SERVING_IMAGE_URI=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest
