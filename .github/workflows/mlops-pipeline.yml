@@ -97,16 +97,31 @@ jobs:
     - name: Set Variables
       id: vars
       run: |
+        # 1. Short SHA
         echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
         
-        # Logic to get PR Number
+        # 2. Determine PR Number & Mode
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "Event is Pull Request. Using Number: ${{ github.event.number }}"
           echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
           echo "MODE=experiment" >> $GITHUB_ENV
         else
-          # On Merge (Push), try to extract PR number from commit message
-          # Commit msg format: "Merge pull request #12 from ..."
-          PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
+          echo "Event is Push. Checking commit message for PR number..."
+          # Get commit message
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit Message: $COMMIT_MSG"
+          
+          # Try to extract number (looks for #123)
+          PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
+          
+          # Force default to 0 if empty
+          if [ -z "$PR_NUM" ]; then
+            echo "No PR number found. Defaulting to 0."
+            PR_NUM="0"
+          else
+            echo "Found PR Number: $PR_NUM"
+          fi
+          
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
@@ -164,18 +179,46 @@ jobs:
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
-        
-        # Export variables specifically for parallel-train-job.yaml
+        # Variables needed for parallel-train-job.yaml
         export BUCKET_NAME=${BUCKET_NAME}
         export MODE=${MODE}
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
         
-        # FIX: Use the parallel template, NOT universal-job.yaml
+        # USE THE PARALLEL TEMPLATE
         envsubst < k8s/parallel-train-job.yaml | kubectl apply -f -
-        
-        # Wait for job completion
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
+
+    # --- F. REPORT RESULTS TO PR (New Step) ---
+    - name: Comment Results on PR
+      # Only run on Pull Requests, not on push to main
+      if: github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 1. Query BigQuery for the latest results of this PR
+        # We fetch the top 2 rows sorted by timestamp desc to get the run we just finished
+        bq query --nouse_legacy_sql --format=json \
+          "SELECT model_type, accuracy, run_id FROM \`$PROJECT_ID.ml_metadata.experiments\` WHERE pr_number = $PR_NUMBER ORDER BY timestamp DESC LIMIT 2" > results.json
+
+        # 2. Parse JSON and format Markdown Table using Python one-liner
+        # Generates a file body.md
+        python3 -c "
+        import json
+        try:
+            with open('results.json') as f:
+                data = json.load(f)
+            print('### 🚀 Model Training Results')
+            print('| Model Type | Accuracy | Run ID |')
+            print('| :--- | :--- | :--- |')
+              for row in data:
+                print(f'| {row['model_type']} | {row['accuracy']:.4f} | {row['run_id']} |')
+        except Exception as e:
+            print('No results found or error parsing.')
+        " > body.md
+
+        # 3. Post Comment using GitHub CLI (Pre-installed on Runners)
+        gh pr comment ${{ github.event.number }} --body-file body.m
 
   # 4. DEPLOY API (Only on Push to Main)
   deploy-api:
