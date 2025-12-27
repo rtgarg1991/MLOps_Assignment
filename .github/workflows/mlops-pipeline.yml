@@ -164,13 +164,46 @@ jobs:
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
-        export CMD='["python", "src/train.py"]'
-        # Note: --mode is set dynamically in "Set Variables" step
-        export ARGS='["--model-dir=gs://'${BUCKET_NAME}'", "--mode='${MODE}'", "--pr-number='${PR_NUMBER}'"]'
+        # Variables needed for parallel-train-job.yaml
+        export BUCKET_NAME=${BUCKET_NAME}
+        export MODE=${MODE}
+        export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
         
-        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        # USE THE PARALLEL TEMPLATE
+        envsubst < k8s/parallel-train-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
+
+    # --- F. REPORT RESULTS TO PR (New Step) ---
+    - name: Comment Results on PR
+      # Only run on Pull Requests, not on push to main
+      if: github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 1. Query BigQuery for the latest results of this PR
+        # We fetch the top 2 rows sorted by timestamp desc to get the run we just finished
+        bq query --nouse_legacy_sql --format=json \
+          "SELECT model_type, accuracy, run_id FROM \`$PROJECT_ID.ml_metadata.experiments\` WHERE pr_number = $PR_NUMBER ORDER BY timestamp DESC LIMIT 2" > results.json
+
+        # 2. Parse JSON and format Markdown Table using Python one-liner
+        # Generates a file body.md
+        python3 -c "
+        import json
+        try:
+            with open('results.json') as f:
+                data = json.load(f)
+            print('### 🚀 Model Training Results')
+            print('| Model Type | Accuracy | Run ID |')
+            print('| :--- | :--- | :--- |')
+              for row in data:
+                print(f'| {row['model_type']} | {row['accuracy']:.4f} | {row['run_id']} |')
+        except Exception as e:
+            print('No results found or error parsing.')
+        " > body.md
+
+        # 3. Post Comment using GitHub CLI (Pre-installed on Runners)
+        gh pr comment ${{ github.event.number }} --body-file body.m
 
   # 4. DEPLOY API (Only on Push to Main)
   deploy-api:
