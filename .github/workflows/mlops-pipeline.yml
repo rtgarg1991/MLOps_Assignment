@@ -47,7 +47,7 @@ jobs:
   # Runs only if any ML code or data changed
   build-trainer:
     needs: changes
-    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
+    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -164,12 +164,17 @@ jobs:
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
-        export CMD='["python", "src/train.py"]'
-        # Note: --mode is set dynamically in "Set Variables" step
-        export ARGS='["--model-dir=gs://'${BUCKET_NAME}'", "--mode='${MODE}'", "--pr-number='${PR_NUMBER}'"]'
+        
+        # Export variables specifically for parallel-train-job.yaml
+        export BUCKET_NAME=${BUCKET_NAME}
+        export MODE=${MODE}
+        export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
         
-        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        # FIX: Use the parallel template, NOT universal-job.yaml
+        envsubst < k8s/parallel-train-job.yaml | kubectl apply -f -
+        
+        # Wait for job completion
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
   # 4. DEPLOY API (Only on Push to Main)
