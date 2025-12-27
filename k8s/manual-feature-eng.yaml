@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-feature-eng-job
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: engineer
+        image: us-central1-docker.pkg.dev/mlops-final-001/mlops-repo/heart-trainer:manual-test-v1
+        imagePullPolicy: Always
+        command: ["python", "src/feature_engineering.py"]
+        args:
+          - "--bucket=mlops-final-001-mlops-artifacts"
+          - "--pr-number=999"
+      restartPolicy: Never

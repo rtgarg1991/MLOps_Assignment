@@ -6,9 +6,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code and data
+# Copy source code
 COPY src/ ./src/
+# Copy data folder (REQUIRED for ingest.py to find source file)
 COPY data/ ./data/
 
-# Entry point triggers training
-ENTRYPOINT ["python", "src/train.py", "--model-dir", "/app/models"]
+# Generic entrypoint allows K8s to pass "src/script_name.py"
+ENTRYPOINT ["python"]

@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-train-prod-job
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: trainer
+        image: us-central1-docker.pkg.dev/mlops-final-001/mlops-repo/heart-trainer:manual-test-v1
+        imagePullPolicy: Always
+        command: ["python", "src/train.py"]
+        args: 
+          - "--model-dir=gs://mlops-final-001-mlops-artifacts"
+          - "--mode=full_training"     # <--- This triggers Prod Mode
+          - "--pr-number=999"          # Finds best config from PR 999 experiments
+          - "--model-type=logistic_regression" # Fallback only, usually ignored
+      restartPolicy: Never

@@ -5,3 +5,8 @@ pandas
 pytest
 httpx
 google-cloud-storage
+google-cloud-bigquery
+db-dtypes
+fsspec
+gcsfs
+matplotlib

@@ -3,105 +3,215 @@ name: MLOps Pipeline
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 permissions:
   id-token: write
   contents: read
 
 env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: us-central1
   REPOSITORY: mlops-repo
-  TRAINER_IMAGE: heart-trainer
+  IMAGE_NAME: heart-trainer
+  SERVING_IMAGE: heart-api
   BUCKET_NAME: mlops-final-001-mlops-artifacts
   CLUSTER_NAME: mlops-cluster
   ZONE: us-central1-a
+  # This namespace must match where you set up the KSA/Workload Identity
+  K8S_NAMESPACE: default 
 
 jobs:
+  # 1. DETECT CHANGES
+  # Identifies which files changed to trigger only necessary steps
   changes:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.filter.outputs.build }}
+      data: ${{ steps.filter.outputs.data }}
+      prep: ${{ steps.filter.outputs.prep }}
+      feat: ${{ steps.filter.outputs.feat }}
+      train: ${{ steps.filter.outputs.train }}
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          data: ['data/processed.cleveland.data', 'data/raw_version.txt']
+          prep: ['src/pre-processing.py']
+          feat: ['src/feature_engineering.py']
+          train: ['src/train.py']
 
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            build:
-              - 'src/**'
-              - 'data/**'
-              - 'Dockerfile.train'
-              - 'Dockerfile.serve'
-              - 'requirements.txt'
-
-  build-train-deploy:
+  # 2. BUILD TRAINER IMAGE
+  # Runs only if any ML code or data changed
+  build-trainer:
     needs: changes
+    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    # Debug secrets presence
-    - name: Debug secrets
-      run: |
-        echo "PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}"
-        echo "SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}"
-        echo "WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}"
-
-    # Authenticate using Workload Identity
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v2
+    - uses: actions/checkout@v4
+    
+    # Authenticate to Google Cloud
+    - id: 'auth'
+      uses: 'google-github-actions/auth@v2'
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
         service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-    - name: Setup gcloud
-      uses: google-github-actions/setup-gcloud@v2
-
     - name: Configure Docker
       run: gcloud auth configure-docker $REGION-docker.pkg.dev
 
-    # Build & Push Training Image
-    - name: Build & Push Trainer Image
-      if: needs.changes.outputs.should_build == 'true'
+    - name: Build and Push Trainer
       run: |
-        docker build -f Dockerfile.train -t $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest .
-        docker push $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$TRAINER_IMAGE:latest
+        docker build -f Dockerfile -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }} .
+        docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
-    # Get GKE credentials
-    - name: Get GKE credentials
-      run: |
-        gcloud container clusters get-credentials $CLUSTER_NAME --zone $ZONE --project ${{ secrets.GCP_PROJECT_ID }}
+  # 3. RUN PIPELINE JOBS
+  # Orchestrates the modular scripts on GKE
+  run-pipeline:
+    needs: [changes, build-trainer]
+    # Always run if we built an image, or if it's a merge to main (to run promotion)
+    if: ${{ always() && (needs.build-trainer.result == 'success' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
 
-    - name: Install GKE auth plugin
-      run: |
-        gcloud components install gke-gcloud-auth-plugin --quiet
+    # --- Setup & Auth ---
+    - uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+        service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-    # Trigger Training Job on GKE
-    - name: Run training job
-      run: |
-        kubectl apply -f k8s/training-job.yaml
+    - uses: google-github-actions/setup-gcloud@v2
+    - uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ env.CLUSTER_NAME }}
+        location: ${{ env.ZONE }}
 
-    # Wait for job to finish
-    - name: Wait for training job
-      run: |
-        kubectl wait --for=condition=complete job/heart-model-training --timeout=10m
+    - name: Install envsubst
+      run: sudo apt-get install -y gettext-base
 
-    # Download trained model
-    - name: Download model
+    # --- Determine Variables ---
+    - name: Set Variables
+      id: vars
       run: |
+        echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+        
+        # Logic to get PR Number
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+          echo "MODE=experiment" >> $GITHUB_ENV
+        else
+          # On Merge (Push), try to extract PR number from commit message
+          # Commit msg format: "Merge pull request #12 from ..."
+          PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
+          echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
+          echo "MODE=full_training" >> $GITHUB_ENV
+        fi
+
+    # --- A. INGESTION (Only if data changed) ---
+    - name: Run Ingest
+      if: needs.changes.outputs.data == 'true'
+      run: |
+        export JOB_NAME=ingest-$SHORT_SHA
+        export CMD='["python", "src/ingest.py"]'
+        export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+        
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
+
+    # --- B. PRE-PROCESSING (If data OR prep script changed) ---
+    - name: Run Pre-processing
+      if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true'
+      run: |
+        export JOB_NAME=preprocess-$SHORT_SHA
+        export CMD='["python", "src/pre-processing.py"]'
+        export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+        
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
+
+    # --- C. FEATURE ENGINEERING (If data, prep OR feat script changed) ---
+    - name: Run Feature Engineering
+      if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true'
+      run: |
+        export JOB_NAME=feature-$SHORT_SHA
+        export CMD='["python", "src/feature_engineering.py"]'
+        export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+        
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
+
+    # --- D. PROMOTION (Only on Push to Main) ---
+    - name: Promote Artifacts to Production
+      if: github.event_name == 'push'
+      run: |
+        export JOB_NAME=promote-$SHORT_SHA
+        export CMD='["python", "src/promote.py"]'
+        export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
+        # Use latest image or specific SHA if available
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+        
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
+
+    # --- E. TRAINING (Always runs in PR or Push) ---
+    - name: Run Training
+      run: |
+        export JOB_NAME=train-$SHORT_SHA
+        export CMD='["python", "src/train.py"]'
+        # Note: --mode is set dynamically in "Set Variables" step
+        export ARGS='["--model-dir=gs://'${BUCKET_NAME}'", "--mode='${MODE}'", "--pr-number='${PR_NUMBER}'"]'
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+        
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
+
+  # 4. DEPLOY API (Only on Push to Main)
+  deploy-api:
+    needs: run-pipeline
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    # --- Auth ---
+    - uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+        service_account: ${{ secrets.GCP_SA_EMAIL }}
+    
+    - run: gcloud auth configure-docker $REGION-docker.pkg.dev
+    - uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ env.CLUSTER_NAME }}
+        location: ${{ env.ZONE }}
+
+    # --- Download Prod Model ---
+    - name: Download Production Model
+      run: |
+        # PR_NUMBER logic same as above to find which version to download
+        PR_NUM=$(git log -1 --pretty=%B | grep -oP '#\K\d+' | head -1 || echo "0")
         mkdir -p models
-        gsutil cp gs://$BUCKET_NAME/latest/model.pkl models/model.pkl
+        # Pulling the specific version trained in the previous step
+        gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
 
-    # Build & Push Serving Image
-    - name: Build & Push API Image
+    # --- Build & Push Serving Image ---
+    - name: Build & Push API
       run: |
-        docker build -f Dockerfile.serve -t $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/heart-api:latest .
-        docker push $REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/heart-api:latest
+        docker build -f Dockerfile.serve -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest .
+        docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest
 
-    # Deploy to GKE
-    - name: Deploy API
+    # --- Deploy to GKE ---
+    - name: Deploy Service
       run: |
-        kubectl apply -f k8s/
+        export SERVING_IMAGE_URI=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest
+        envsubst < k8s/deployment.yaml | kubectl apply -f -
+
+        kubectl apply -f k8s/service.yaml
+        kubectl rollout restart deployment/heart-api

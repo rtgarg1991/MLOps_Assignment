@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+spec:
+  ttlSecondsAfterFinished: 300 # Auto-cleanup after 5 mins
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: worker
+        image: ${IMAGE}
+        command: ${CMD} # Injected by pipeline (e.g., ["python", "src/ingest.py"])
+        args: ${ARGS}   # Injected by pipeline
+      restartPolicy: Never

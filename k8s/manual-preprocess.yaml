@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-preprocess-job
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: preprocessor
+        image: us-central1-docker.pkg.dev/mlops-final-001/mlops-repo/heart-trainer:manual-test-v1
+        imagePullPolicy: Always
+        command: ["python", "src/pre-processing.py"]
+        args:
+          - "--bucket=mlops-final-001-mlops-artifacts"
+          - "--pr-number=999"
+      restartPolicy: Never

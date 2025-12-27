@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-ingest-job
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: ingestor
+        # This matches the image we just pushed
+        image: us-central1-docker.pkg.dev/mlops-final-001/mlops-repo/heart-trainer:manual-test-v1
+        imagePullPolicy: Always
+        command: ["python", "src/ingest.py"]
+        args:
+          - "--bucket=mlops-final-001-mlops-artifacts"
+          - "--pr-number=999"  # Using 999 to signify a manual test
+      restartPolicy: Never

@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-train-parallel-job
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed  # <--- Enables the Index variable
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: trainer
+        image: us-central1-docker.pkg.dev/mlops-final-001/mlops-repo/heart-trainer:manual-test-v1
+        imagePullPolicy: Always
+        command: ["/bin/sh", "-c"]
+        # Logic: If index is 0, set model to LR. If 1, set to RF.
+        args:
+          - |
+            if [ "$JOB_COMPLETION_INDEX" -eq 0 ]; then
+              MODEL_TYPE="logistic_regression"
+            else
+              MODEL_TYPE="random_forest"
+            fi
+            
+            echo "Running Pod Index: $JOB_COMPLETION_INDEX with Model: $MODEL_TYPE"
+            
+            python src/train.py \
+              --model-dir=gs://mlops-final-001-mlops-artifacts \
+              --mode=experiment \
+              --pr-number=999 \
+              --model-type=$MODEL_TYPE
+      restartPolicy: Never
