@@ -240,20 +240,25 @@ jobs:
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
         service_account: ${{ secrets.GCP_SA_EMAIL }}
+    
+    # Now set up gcloud/gsutil with these credentials
+    - uses: google-github-actions/setup-gcloud@v2
 
     - run: gcloud auth configure-docker $REGION-docker.pkg.dev
+    
     - uses: google-github-actions/get-gke-credentials@v2
       with:
         cluster_name: ${{ env.CLUSTER_NAME }}
         location: ${{ env.ZONE }}
 
     - name: Download Production Model
-      # FIX: Using the exact number calculated in the previous job
+      # Using the Output from the previous job
       env:
         PR_NUM: ${{ needs.run-pipeline.outputs.pr_num }}
       run: |
         echo "Using PR_NUM: $PR_NUM"
         mkdir -p models
+        # This will now work because 'setup-gcloud' configured the credentials above
         gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
 
     - name: Build & Push API
