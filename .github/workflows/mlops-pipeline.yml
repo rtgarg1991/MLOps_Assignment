@@ -179,14 +179,14 @@ jobs:
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
-        # Variables needed for parallel-train-job.yaml
         export BUCKET_NAME=${BUCKET_NAME}
         export MODE=${MODE}
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
         
-        # USE THE PARALLEL TEMPLATE
-        envsubst < k8s/parallel-train-job.yaml | kubectl apply -f -
+        # FIX: Pass specific variables to envsubst so it ignores $JOB_COMPLETION_INDEX and $MODEL_TYPE
+        envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
+        
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
     # --- F. REPORT RESULTS TO PR (New Step) ---
@@ -208,7 +208,7 @@ jobs:
         try:
             with open('results.json') as f:
                 data = json.load(f)
-            print('### 🚀 Model Training Results')
+            print('### Model Training Results')
             print('| Model Type | Accuracy | Run ID |')
             print('| :--- | :--- | :--- |')
               for row in data:
