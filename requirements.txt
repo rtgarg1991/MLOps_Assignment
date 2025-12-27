@@ -5,3 +5,8 @@ pandas
 pytest
 httpx
 google-cloud-storage
+numpy
+matplotlib
+seaborn
+joblib
+ucimlrepo
