@@ -155,7 +155,9 @@ jobs:
 
     # --- D. PROMOTION ---
     - name: Promote Artifacts to Production
-      if: github.event_name == 'push'
+      if: |
+        github.event_name == 'push' && 
+        (needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true')
       run: |
         export JOB_NAME=promote-$SHORT_SHA
         export CMD='["python", "src/promote.py"]'
