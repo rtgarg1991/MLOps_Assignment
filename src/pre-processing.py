@@ -75,8 +75,8 @@ def main():
     
     print(f"Pre-processing input: gs://{args.bucket}/{input_path}")
     
-    # Read without header (raw data)
-    df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
+    # Read raw data
+    df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
     
     # Clean Data
     df_processed = clean_data(df)
