@@ -56,7 +56,7 @@ def main():
     pr_raw = f"data/raw/pr-{args.pr_number}/raw.csv"
     input_path = pr_raw if bucket.blob(pr_raw).exists() else "data/raw/production/latest.csv"
     
-    print(f"Pre-processing input: gs://{args.bucket}/{input_path}")
+    print(f"EDA Input: gs://{args.bucket}/{input_path}")
     
     # Read without header (raw data)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
