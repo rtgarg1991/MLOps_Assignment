@@ -118,7 +118,9 @@ def train_model(df, config):
     
     metrics = evaluate_model(model, splits["X_test"], splits["y_test"], algo_name)
     metrics_df = pd.DataFrame([metrics])
-    metrics_df.to_csv(metrics_path, index=False)
+    metrics_df["timestamp"] = datetime.now().isoformat()
+    metrics_df.to_csv(metrics_path, mode="a",header=not metrics_path.exists(),index=False)
+
 
     cm_path = plot_confusion_matrix(model, splits["X_test"], splits["y_test"], algo_name)
     precision_recall_path = plot_precision_recall(model, splits["X_test"], splits["y_test"], algo_name)
@@ -133,17 +135,22 @@ def train_model(df, config):
     return model, scaler, metrics, artifacts
 
 # ================== EVALUATION ==================
-def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, float]:
+def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, Any]:
     y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+
+    if hasattr(model, "predict_proba"):
+        y_proba = model.predict_proba(X_test)[:, 1]
+        roc_auc = roc_auc_score(y_test, y_proba)
+    else:
+        roc_auc = None
 
     return {
-        "Model": model_name,
-        "Accuracy": accuracy_score(y_test, y_pred),
-        "Precision": precision_score(y_test, y_pred, zero_division=0),
-        "Recall": recall_score(y_test, y_pred, zero_division=0),
-        "F1": f1_score(y_test, y_pred, zero_division=0),
-        "ROC_AUC": roc_auc_score(y_test, y_proba)
+        "model": model_name,
+        "accuracy": float(accuracy_score(y_test, y_pred)),
+        "precision": float(precision_score(y_test, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_test, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_test, y_pred, zero_division=0)),
+        "roc_auc": float(roc_auc) if roc_auc is not None else None
     }
 
 def plot_confusion_matrix(model, X_test, y_test, model_name: str)-> Path:
@@ -203,7 +210,7 @@ def save_classification_report(model, X_test, y_test, model_name: str)-> Path:
     )
 
     pd.DataFrame(report_dict).transpose().to_csv(
-        classification_report
+        classification_report_path
     )
     
     return classification_report_path
@@ -276,10 +283,17 @@ def main():
     if args.mode == 'experiment':
         subpath = f"experiments/pr-{args.pr_number}/{timestamp}"
         tracking_row = {
-            "run_id": timestamp, "timestamp": datetime.now().isoformat(),
-            "pr_number": args.pr_number, "model_type": config["model_type"],
-            "accuracy": metrics["accuracy"], "gcs_path": f"gs://{bucket_name}/{subpath}",
-            "config_params": str(config)
+            "run_id": timestamp,
+            "timestamp": datetime.now().isoformat(),
+            "pr_number": args.pr_number,
+            "model_type": metrics["model"],
+            "accuracy": metrics["accuracy"],
+            "precision": metrics["precision"],
+            "recall": metrics["recall"],
+            "f1": metrics["f1"],
+            "roc_auc": metrics["roc_auc"],
+            "gcs_path": f"gs://{bucket_name}/{subpath}",
+            "config_params": json.dumps(config),
         }
         log_to_bigquery(project_id, f"{project_id}.ml_metadata.experiments", tracking_row)
     else:
@@ -290,7 +304,8 @@ def main():
             "version_tag": str(args.pr_number),
             "deployment_date": datetime.now().isoformat(),
             "is_active": True,
-            "performance_at_deploy": metrics["accuracy"]
+            "accuracy_at_deploy": metrics["accuracy"],
+            "roc_auc_at_deploy": metrics["roc_auc"],
         }
         log_to_bigquery(project_id, f"{project_id}.ml_metadata.production_models", prod_row)
 
@@ -310,10 +325,15 @@ def main():
     # This allows the runner to see the metrics without needing BigQuery permissions
     final_metrics = {
         "run_id": timestamp,
-        "model_type": config["model_type"],
+        "model_type": metrics["model"],
         "accuracy": metrics["accuracy"],
-        "pr_number": args.pr_number
+        "precision": metrics["precision"],
+        "recall": metrics["recall"],
+        "f1": metrics["f1"],
+        "roc_auc": metrics["roc_auc"],
+        "pr_number": args.pr_number,
     }
+
     print(f"__METRICS__:{json.dumps(final_metrics)}")
 
 if __name__ == "__main__":
