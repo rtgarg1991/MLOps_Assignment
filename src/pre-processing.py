@@ -35,35 +35,6 @@ def apply_preprocessing_logic(df):
         df[col] = pd.to_numeric(df[col])
         
     return df
-
-def run_eda(df: pd.DataFrame):
-    print("Running EDA (before cleaning)...")
-
-    # Missing values
-    missing = df.isna().sum()
-    missing[missing > 0].plot(kind="bar", title="Missing Values")
-    plt.tight_layout()
-    plt.savefig(VISUALS_DIR / "missing_values/missing_values.png")
-    plt.close()
-
-    # Numeric distributions
-    for col in NUMERIC_FEATURES:
-        if col in df.columns:
-            plt.figure()
-            sns.histplot(df[col], kde=True)
-            plt.title(f"Distribution of {col}")
-            plt.tight_layout()
-            plt.savefig(VISUALS_DIR / "distributions" / f"{col}.png")
-            plt.close()
-
-    # Correlation heatmap
-    corr = df[NUMERIC_FEATURES + [TARGET_COLUMN]].corr()
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(corr, annot=True, cmap="coolwarm")
-    plt.title("Correlation Heatmap")
-    plt.tight_layout()
-    plt.savefig(VISUALS_DIR / "correlations/correlation_heatmap.png")
-    plt.close()
     
 # ------------------ CLEANING ------------------
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -106,9 +77,6 @@ def main():
     
     # Read without header (raw data)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
-    
-    # Run EDA
-    run_eda(df)
     
     # Clean Data
     df_processed = clean_data(df)
