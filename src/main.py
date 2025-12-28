@@ -22,7 +22,7 @@ model_artifacts = None
 PREDICTION_COUNTER = Counter(
     "heart_prediction_total",
     "Total number of predictions made",
-    ["class"]
+    ["pred_class"]
 )
 
 CONFIDENCE_HISTOGRAM = Histogram(
@@ -141,7 +141,7 @@ def predict(data: PredictionInput):
             else:
                 confidence = 1.0
 
-        PREDICTION_COUNTER.labels(class=str(prediction)).inc()
+        PREDICTION_COUNTER.labels(pred_class=str(prediction)).inc()
         CONFIDENCE_HISTOGRAM.observe(confidence)
 
         result = {
