@@ -95,44 +95,75 @@ def split_data(
         "y_test": y_test
     }
 
+
 def train_model(df, config):
     """Trains a model based on the provided configuration dictionary."""
+
+    # Separating features and target
     X = df.drop(columns=[TARGET_COLUMN])
     y = df[TARGET_COLUMN]
-    scaler = StandardScaler()
-        
-    splits =  split_data(X, y, False, 42)
 
-    algo_name = config['model_type'] 
-    # 1. Choose Model Type
-    if algo_name == 'logistic_regression':
-        model = LogisticRegression(max_iter=config.get('max_iter', 1000))
-    elif algo_name == 'random_forest':
-        model = RandomForestClassifier(n_estimators=config.get('n_estimators', 100))
+    # Spliting data
+    splits = split_data(X, y, False, 42)
+
+    X_train = splits["X_train"]
+    X_test = splits["X_test"]
+    y_train = splits["y_train"]
+    y_test = splits["y_test"]
+
+    algo_name = config["model_type"]
+
+    # Model selection + scaling
+    scaler = None 
+
+    if algo_name == "logistic_regression":
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)   # ✅ fit happens here
+        X_test = scaler.transform(X_test)
+
+        model = LogisticRegression(
+            max_iter=config.get("max_iter", 1000)
+        )
+
+    elif algo_name == "random_forest":
+        model = RandomForestClassifier(
+            n_estimators=config.get("n_estimators", 100),
+            random_state=42
+        )
+
     else:
         raise ValueError(f"Unsupported model type: {algo_name}")
-    
-    #Train the model
-    model.fit(splits["X_train"], splits["y_train"])
 
-    
-    metrics = evaluate_model(model, splits["X_test"], splits["y_test"], algo_name)
+    # Train
+    model.fit(X_train, y_train)
+
+    # Evaluate
+    metrics = evaluate_model(model, X_test, y_test, algo_name)
+
     metrics_df = pd.DataFrame([metrics])
     metrics_df["timestamp"] = datetime.now().isoformat()
-    metrics_df.to_csv(metrics_path, mode="a",header=not metrics_path.exists(),index=False)
+    metrics_df.to_csv(
+        metrics_path,
+        mode="a",
+        header=not metrics_path.exists(),
+        index=False
+    )
 
+    # Artifacts
+    cm_path = plot_confusion_matrix(model, X_test, y_test, algo_name)
+    pr_path = plot_precision_recall(model, X_test, y_test, algo_name)
+    roc_path = plot_roc_curve(model, X_test, y_test, algo_name)
+    cr_path = save_classification_report(model, X_test, y_test, algo_name)
 
-    cm_path = plot_confusion_matrix(model, splits["X_test"], splits["y_test"], algo_name)
-    precision_recall_path = plot_precision_recall(model, splits["X_test"], splits["y_test"], algo_name)
-    roc_curve_path = plot_roc_curve(model, splits["X_test"], splits["y_test"], algo_name)
-    classification_report_path = save_classification_report(model, splits["X_test"], splits["y_test"], algo_name)
+    artifacts = [
+        (cm_path, "confusion_matrix.png"),
+        (pr_path, "precision_recall.png"),
+        (roc_path, "roc_curve.png"),
+        (cr_path, "classification_report.csv"),
+    ]
 
-    
-    # List of (local_path, destination_filename)
-    artifacts = [(cm_path, "confusion_matrix.png"), (precision_recall_path, "precision_recall_.png"), 
-                 (roc_curve_path, "roc_curve.png"), (classification_report_path, "classification_report.csv")]
-    
     return model, scaler, metrics, artifacts
+
 
 # ================== EVALUATION ==================
 def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, Any]:
