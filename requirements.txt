@@ -10,3 +10,4 @@ db-dtypes
 fsspec
 gcsfs
 matplotlib
+prometheus-fastapi-instrumentator
