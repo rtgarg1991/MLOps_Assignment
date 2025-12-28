@@ -118,7 +118,7 @@ def train_model(df, config):
 
     if algo_name == "logistic_regression":
         scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)   # ✅ fit happens here
+        X_train = scaler.fit_transform(X_train)
         X_test = scaler.transform(X_test)
 
         model = LogisticRegression(
