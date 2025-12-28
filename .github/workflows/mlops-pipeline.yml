@@ -100,11 +100,11 @@ jobs:
         else
           COMMIT_MSG=$(git log -1 --pretty=%B)
           PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
-  
+
           if [ -z "$PR_NUM" ]; then
             PR_NUM="0"
           fi
-  
+
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
           echo "pr_num_output=$PR_NUM" >> $GITHUB_OUTPUT
           echo "MODE=full_training" >> $GITHUB_ENV
@@ -234,13 +234,12 @@ jobs:
 
     - name: Start API
       run: |
-        docker run -d -p 8000:8000 --name api-test heart-api-test:latest
+        docker run -d -p 8000:8080 --name api-test heart-api-test:latest
         echo "Waiting for API to start..."
         sleep 20
 
     - name: Test Health Check
       run: |
-        # Try up to 5 times to connect
         for i in {1..5}; do
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "fail")
           if [ "$STATUS" == "200" ]; then
@@ -283,6 +282,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # FIX: Added Auth step here to solve 401 error
     - uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
