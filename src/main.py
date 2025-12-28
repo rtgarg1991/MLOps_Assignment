@@ -118,8 +118,10 @@ def predict(data: PredictionInput):
 
     model = model_artifacts["model"]
     scaler = model_artifacts["scaler"]
-    feature_columns = model_artifacts["feature_columns"]
-
+    feature_columns = [
+        c for c in model_artifacts["feature_columns"]
+        if c != "disease_present"
+    ]
 
     input_dict = data.model_dump()
     logger.info(f"Received prediction request: {input_dict}")
@@ -127,11 +129,25 @@ def predict(data: PredictionInput):
     AGE_DISTRIBUTION.observe(input_dict['age'])
 
     input_df = pd.DataFrame([input_dict])
+    categorical_cols = [
+                "sex",
+                "cp",
+                "fbs",
+                "restecg",
+                "exang",
+                "slope",
+                "ca",
+                "thal",
+            ]
 
     try:
         with INFERENCE_LATENCY.time():
             #Applying SAME one-hot encoding as training
-            input_encoded = pd.get_dummies(input_df.astype(str))
+            input_encoded = pd.get_dummies(
+                input_df,
+                columns=categorical_cols,
+                drop_first=False
+            )
 
             #Align with training feature schema
             input_encoded = input_encoded.reindex(
@@ -139,11 +155,13 @@ def predict(data: PredictionInput):
                 fill_value=0
             )
             
+            input_encoded = input_encoded.astype(int)
+            
             # Applying scaling only if scaler exists
             if scaler is not None:
-                X_scaled = scaler.transform(input_df)
+                X_scaled = scaler.transform(input_encoded)
             else:
-                X_scaled = input_df    
+                X_scaled = input_encoded    
             prediction = int(model.predict(X_scaled)[0])
 
             if hasattr(model, "predict_proba"):

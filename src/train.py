@@ -115,9 +115,8 @@ def train_model(df, config):
 
     algo_name = config["model_type"]
 
-    # Model selection + scaling
+    # Model selection and scaling
     scaler = None 
-
     if algo_name == "logistic_regression":
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
