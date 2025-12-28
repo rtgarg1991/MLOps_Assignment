@@ -226,6 +226,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Create Dummy Model Directory
+      run: mkdir -p models
+    # -------------------------------------------------------------
+
     - name: Build API Container
       run: docker build -f Dockerfile.serve -t heart-api-test:latest .
 
@@ -254,7 +258,7 @@ jobs:
                "fbs": 1, "restecg": 0, "thalach": 150, "exang": 0,
                "oldpeak": 2.3, "slope": 0, "ca": 0, "thal": 1
              }' > response.json
- 
+
         echo "Response:"
         cat response.json
 
