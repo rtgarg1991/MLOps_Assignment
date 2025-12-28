@@ -65,7 +65,7 @@ def main():
 
     # 2. Load from local repo source
     local_path = DATA_DIR / "heart_disease_raw.csv"
-    df = pd.read_csv(local_path, header=None)
+    df = pd.read_csv(local_path)
 
     # 2. Save to GCS (Experimental Raw folder)
     gcs_uri = f"gs://{args.bucket}/data/raw/pr-{args.pr_number}/raw.csv"
