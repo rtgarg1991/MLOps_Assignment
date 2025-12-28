@@ -20,9 +20,10 @@ env:
   BUCKET_NAME: mlops-final-001-mlops-artifacts
   CLUSTER_NAME: mlops-cluster
   ZONE: us-central1-a
-  K8S_NAMESPACE: default 
+  K8S_NAMESPACE: default
 
 jobs:
+  # 1. DETECT CHANGES
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -40,12 +41,15 @@ jobs:
           data: ['data/processed.cleveland.data', 'data/raw_version.txt']
           prep: ['src/pre-processing.py']
           feat: ['src/feature_engineering.py']
+          # Training triggers if code, deps, or Dockerfile change
           train: ['src/train.py', 'requirements.txt', 'Dockerfile']
+          # API triggers if main.py, deps, or serving Dockerfile change
           api: ['src/main.py', 'Dockerfile.serve', 'requirements.txt']
 
+  # 2. BUILD TRAINER IMAGE
   build-trainer:
     needs: changes
-    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -64,8 +68,11 @@ jobs:
         docker build -f Dockerfile -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }} .
         docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
+  # 3. RUN PIPELINE JOBS
   run-pipeline:
     needs: [changes, build-trainer]
+    # Run if build-trainer succeeded.
+    # OR if it's a PUSH (Merge) but we need to run deploy-api even if training skipped.
     if: ${{ always() && (needs.build-trainer.result == 'success' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     outputs:
@@ -110,6 +117,7 @@ jobs:
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
 
+    # --- A. INGESTION ---
     - name: Run Ingest
       if: needs.changes.outputs.data == 'true'
       run: |
@@ -121,6 +129,7 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
+    # --- B. PRE-PROCESSING ---
     - name: Run Pre-processing
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true'
       run: |
@@ -132,6 +141,7 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
+    # --- C. FEATURE ENGINEERING ---
     - name: Run Feature Engineering
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true'
       run: |
@@ -143,6 +153,7 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
+    # --- D. PROMOTION ---
     - name: Promote Artifacts to Production
       if: github.event_name == 'push'
       run: |
@@ -154,7 +165,14 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
+    # --- E. TRAINING (Corrected Conditions) ---
     - name: Run Training
+      # LOGIC:
+      # 1. Run if ANY ML file changed (train, data, prep, feat).
+      # 2. OR if it's a PR (we might want to experiment even if just config changed).
+      if: |
+        github.event_name == 'pull_request' ||
+        (needs.changes.outputs.train == 'true' || needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true')
       run: |
         export JOB_NAME=train-$SHORT_SHA
         export BUCKET_NAME=${BUCKET_NAME}
@@ -166,6 +184,7 @@ jobs:
 
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
+    # --- F. REPORT RESULTS TO PR ---
     - name: Comment Results on PR
       if: github.event_name == 'pull_request'
       env:
@@ -219,6 +238,7 @@ jobs:
 
         gh pr comment ${{ github.event.number }} --body-file body.md
 
+  # 4. TEST API JOB
   test-api-dry-run:
     needs: changes
     if: ${{ needs.changes.outputs.api == 'true' || github.event_name == 'pull_request' }}
@@ -275,14 +295,14 @@ jobs:
             exit 1
         fi
 
+  # 5. DEPLOY API
   deploy-api:
-    needs: run-pipeline
+    needs: [changes, run-pipeline]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
-    # FIX: Added Auth step here to solve 401 error
     - uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -296,13 +316,24 @@ jobs:
         cluster_name: ${{ env.CLUSTER_NAME }}
         location: ${{ env.ZONE }}
 
-    - name: Download Production Model
+    - name: Download Model (Smart Fallback)
       env:
         PR_NUM: ${{ needs.run-pipeline.outputs.pr_num }}
       run: |
-        echo "Using PR_NUM: $PR_NUM"
+        echo "Checking for model v_${PR_NUM}..."
         mkdir -p models
-        gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
+
+        if gsutil ls gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl; then
+            echo "Found NEW model v_${PR_NUM}. Downloading..."
+            gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
+        else
+            echo "Training was skipped (No ML changes). Falling back to LATEST production model."
+
+            LATEST_MODEL_DIR=$(gsutil ls -d gs://$BUCKET_NAME/production/model_v_*/ | sort -V | tail -n 1)
+
+            echo "Downloading latest: $LATEST_MODEL_DIR"
+            gsutil cp ${LATEST_MODEL_DIR}model.pkl models/model.pkl
+        fi
 
     - name: Build & Push API
       run: |
