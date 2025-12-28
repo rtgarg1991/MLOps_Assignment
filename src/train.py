@@ -112,6 +112,10 @@ def train_model(df, config):
     else:
         raise ValueError(f"Unsupported model type: {algo_name}")
     
+    #Train the model
+    model.fit(splits["X_train"], splits["y_train"])
+
+    
     metrics = evaluate_model(model, splits["X_test"], splits["y_test"], algo_name)
     metrics_df = pd.DataFrame([metrics])
     metrics_df.to_csv(metrics_path, index=False)
