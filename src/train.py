@@ -102,6 +102,8 @@ def train_model(df, config):
     # Separating features and target
     X = df.drop(columns=[TARGET_COLUMN])
     y = df[TARGET_COLUMN]
+    
+    feature_columns = list(df.columns)
 
     # Spliting data
     splits = split_data(X, y, False, 42)
@@ -162,7 +164,7 @@ def train_model(df, config):
         (cr_path, "classification_report.csv"),
     ]
 
-    return model, scaler, metrics, artifacts
+    return model, scaler, metrics, artifacts, feature_columns
 
 
 # ================== EVALUATION ==================
@@ -299,13 +301,13 @@ def main():
     else:
         config = {"model_type": args.model_type}
 
-    model, scaler, metrics, artifacts = train_model(df, config)
+    model, scaler, metrics, artifacts, feature_columns = train_model(df, config)
     
     # Save Model Locally
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     local_model_path = "/tmp/model.pkl"
     with open(local_model_path, "wb") as f:
-        pickle.dump({"model": model, "scaler": scaler, "config": config}, f)
+        pickle.dump({"model": model, "scaler": scaler, "config": config, "feature_columns": feature_columns}, f)
 
     client_gcs = storage.Client(project=project_id)
     bucket = client_gcs.bucket(bucket_name)

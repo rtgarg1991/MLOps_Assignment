@@ -118,6 +118,8 @@ def predict(data: PredictionInput):
 
     model = model_artifacts["model"]
     scaler = model_artifacts["scaler"]
+    feature_columns = model_artifacts["feature_columns"]
+
 
     input_dict = data.model_dump()
     logger.info(f"Received prediction request: {input_dict}")
@@ -125,14 +127,19 @@ def predict(data: PredictionInput):
     AGE_DISTRIBUTION.observe(input_dict['age'])
 
     input_df = pd.DataFrame([input_dict])
-    feature_cols = [
-        "age","sex","cp","trestbps","chol","fbs","restecg",
-        "thalach","exang","oldpeak","slope","ca","thal"
-    ]
-    input_df = input_df[feature_cols]
 
     try:
         with INFERENCE_LATENCY.time():
+            #Applying SAME one-hot encoding as training
+            input_encoded = pd.get_dummies(input_df.astype(str))
+
+            #Align with training feature schema
+            input_encoded = input_encoded.reindex(
+                columns=feature_columns,
+                fill_value=0
+            )
+            
+            # Applying scaling only if scaler exists
             if scaler is not None:
                 X_scaled = scaler.transform(input_df)
             else:
