@@ -11,3 +11,4 @@ fsspec
 gcsfs
 matplotlib
 prometheus-fastapi-instrumentator
+prometheus-client
