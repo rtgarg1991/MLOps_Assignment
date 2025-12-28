@@ -228,7 +228,6 @@ jobs:
 
     - name: Create Dummy Model Directory
       run: mkdir -p models
-    # -------------------------------------------------------------
 
     - name: Build API Container
       run: docker build -f Dockerfile.serve -t heart-api-test:latest .
@@ -236,18 +235,25 @@ jobs:
     - name: Start API
       run: |
         docker run -d -p 8000:8000 --name api-test heart-api-test:latest
-        sleep 10
+        echo "Waiting for API to start..."
+        sleep 20
 
     - name: Test Health Check
       run: |
-        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
-        if [ "$STATUS" == "200" ]; then
-            echo "Health check passed"
-        else
-            echo "Health check failed with status $STATUS"
-            docker logs api-test
-            exit 1
-        fi
+        # Try up to 5 times to connect
+        for i in {1..5}; do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "fail")
+          if [ "$STATUS" == "200" ]; then
+            echo "Health check passed!"
+            exit 0
+          fi
+          echo "Attempt $i: Health check failed ($STATUS). Retrying in 5s..."
+          sleep 5
+        done
+
+        echo "Final failure. Container Logs:"
+        docker logs api-test
+        exit 1
 
     - name: Test Prediction Logic
       run: |
