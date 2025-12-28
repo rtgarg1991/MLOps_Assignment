@@ -1,5 +1,9 @@
-import argparse
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+import argparse
 from datetime import datetime
 from google.cloud import storage, bigquery
 
@@ -8,6 +12,15 @@ COLUMNS = [
     "age","sex","cp","trestbps","chol","fbs","restecg",
     "thalach","exang","oldpeak","slope","ca","thal","target"
 ]
+
+PROJECT_ROOT = Path.cwd()
+DATA_DIR = PROJECT_ROOT / "data"
+VISUALS_DIR = PROJECT_ROOT / "visuals"
+
+# ------------------ CONFIG ------------------
+CATEGORICAL_FEATURES = ["sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"]
+NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
+TARGET_COLUMN = "num"
 
 def apply_preprocessing_logic(df):
     # Assign headers to the raw dataframe
@@ -22,6 +35,30 @@ def apply_preprocessing_logic(df):
         df[col] = pd.to_numeric(df[col])
         
     return df
+    
+# ------------------ CLEANING ------------------
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    print("Cleaning data...")
+
+    df_clean = df.copy()
+
+    df_clean.replace("?", np.nan, inplace=True)
+
+    for col in NUMERIC_FEATURES + CATEGORICAL_FEATURES:
+        if col in df_clean.columns:
+            df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
+
+    for col in ["ca", "thal"]:
+        if col in df_clean.columns:
+            mode_val = df_clean[col].mode()[0]
+            df_clean[col].fillna(mode_val, inplace=True)
+
+    if TARGET_COLUMN in df_clean.columns:
+        df_clean["disease_present"] = df_clean[TARGET_COLUMN].apply(
+            lambda x: 1 if x > 0 else 0
+        )
+
+    return df_clean     
 
 def main():
     parser = argparse.ArgumentParser()
@@ -38,9 +75,11 @@ def main():
     
     print(f"Pre-processing input: gs://{args.bucket}/{input_path}")
     
-    # Read without header (raw data)
-    df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
-    df_processed = apply_preprocessing_logic(df)
+    # Read raw data
+    df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
+    
+    # Clean Data
+    df_processed = clean_data(df)
 
     output_uri = f"gs://{args.bucket}/data/processed/pr-{args.pr_number}/processed.csv"
     
@@ -59,4 +98,4 @@ def main():
     }])
 
 if __name__ == "__main__":
-    main()
+    main() 
