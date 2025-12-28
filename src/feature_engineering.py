@@ -22,7 +22,7 @@ NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "disease_present"
 
 def apply_feature_engineering_logic(df):
-    return one_hot_encode_features(df) 
+    return one_hot_encode_features(df, CATEGORICAL_FEATURES) 
 
 # ================== FEATURE ENGINEERING ==================
 def one_hot_encode_features(
