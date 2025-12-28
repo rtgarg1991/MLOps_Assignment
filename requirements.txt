@@ -12,3 +12,7 @@ gcsfs
 matplotlib
 prometheus-fastapi-instrumentator
 prometheus-client
+numpy
+seaborn
+joblib
+ucimlrepo
