@@ -33,6 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VISUALS_DIR = PROJECT_ROOT / "visuals"
 metrics_path = VISUALS_DIR / "metrics.csv"
 VISUALS_DIR.mkdir(parents=True, exist_ok=True)
+TARGET_COLUMN = "disease_present"
 
 def load_data(bucket_name, pr_number):
     client_gcs = storage.Client()
@@ -96,8 +97,8 @@ def split_data(
 
 def train_model(df, config):
     """Trains a model based on the provided configuration dictionary."""
-    X = df.drop("target", axis=1)
-    y = df["target"]
+    X = df.drop(columns=[TARGET_COLUMN])
+    y = df[TARGET_COLUMN]
     scaler = StandardScaler()
     
     splits =  split_data(X, y, config, False,  random_state=42)
