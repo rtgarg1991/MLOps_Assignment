@@ -23,7 +23,6 @@ env:
   K8S_NAMESPACE: default 
 
 jobs:
-  # 1. DETECT CHANGES
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -31,6 +30,7 @@ jobs:
       prep: ${{ steps.filter.outputs.prep }}
       feat: ${{ steps.filter.outputs.feat }}
       train: ${{ steps.filter.outputs.train }}
+      api: ${{ steps.filter.outputs.api }}
     steps:
     - uses: actions/checkout@v4
     - uses: dorny/paths-filter@v3
@@ -40,9 +40,9 @@ jobs:
           data: ['data/processed.cleveland.data', 'data/raw_version.txt']
           prep: ['src/pre-processing.py']
           feat: ['src/feature_engineering.py']
-          train: ['src/train.py']
+          train: ['src/train.py', 'requirements.txt', 'Dockerfile']
+          api: ['src/main.py', 'Dockerfile.serve', 'requirements.txt']
 
-  # 2. BUILD TRAINER IMAGE
   build-trainer:
     needs: changes
     if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'push' }}
@@ -64,13 +64,10 @@ jobs:
         docker build -f Dockerfile -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }} .
         docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
-  # 3. RUN PIPELINE JOBS
   run-pipeline:
     needs: [changes, build-trainer]
     if: ${{ always() && (needs.build-trainer.result == 'success' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
-
-    # OUTPUTS: Passing the calculated PR number to the next job
     outputs:
       pr_num: ${{ steps.vars.outputs.pr_num_output }}
 
@@ -103,17 +100,16 @@ jobs:
         else
           COMMIT_MSG=$(git log -1 --pretty=%B)
           PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+' | head -1 || echo "")
-  
+
           if [ -z "$PR_NUM" ]; then
             PR_NUM="0"
           fi
-  
+
           echo "PR_NUMBER=$PR_NUM" >> $GITHUB_ENV
           echo "pr_num_output=$PR_NUM" >> $GITHUB_OUTPUT
           echo "MODE=full_training" >> $GITHUB_ENV
         fi
 
-    # --- A. INGESTION ---
     - name: Run Ingest
       if: needs.changes.outputs.data == 'true'
       run: |
@@ -125,7 +121,6 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- B. PRE-PROCESSING ---
     - name: Run Pre-processing
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true'
       run: |
@@ -137,7 +132,6 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- C. FEATURE ENGINEERING ---
     - name: Run Feature Engineering
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true'
       run: |
@@ -149,7 +143,6 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- D. PROMOTION ---
     - name: Promote Artifacts to Production
       if: github.event_name == 'push'
       run: |
@@ -161,7 +154,6 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    # --- E. TRAINING ---
     - name: Run Training
       run: |
         export JOB_NAME=train-$SHORT_SHA
@@ -174,7 +166,6 @@ jobs:
 
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
-    # --- F. REPORT RESULTS TO PR ---
     - name: Comment Results on PR
       if: github.event_name == 'pull_request'
       env:
@@ -197,7 +188,7 @@ jobs:
         import json
         import sys
 
-        print('### 🧪 Model Training Results (GKE Jobs)')
+        print('### Model Training Results (GKE Jobs)')
         print('| Model Type | Accuracy | Run ID |')
         print('| :--- | :--- | :--- |')
 
@@ -214,7 +205,7 @@ jobs:
             results.sort(key=lambda x: x.get('accuracy', 0), reverse=True)
 
             if not results:
-                print('| _No metrics found in logs_ | | |')
+                print('| No metrics found in logs | | |')
             else:
                 for row in results:
                     m_type = row.get('model_type', 'N/A')
@@ -223,12 +214,67 @@ jobs:
                     print(f'| {m_type} | {acc:.4f} | {rid} |')
 
         except FileNotFoundError:
-            print('| _No logs file generated_ | | |')
+            print('| No logs file generated | | |')
         " > body.md
 
         gh pr comment ${{ github.event.number }} --body-file body.md
 
-  # 4. DEPLOY API
+  test-api-dry-run:
+    needs: changes
+    if: ${{ needs.changes.outputs.api == 'true' || github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Create Dummy Model Directory
+      run: mkdir -p models
+
+    - name: Build API Container
+      run: docker build -f Dockerfile.serve -t heart-api-test:latest .
+
+    - name: Start API
+      run: |
+        docker run -d -p 8000:8080 --name api-test heart-api-test:latest
+        echo "Waiting for API to start..."
+        sleep 20
+
+    - name: Test Health Check
+      run: |
+        for i in {1..5}; do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "fail")
+          if [ "$STATUS" == "200" ]; then
+            echo "Health check passed!"
+            exit 0
+          fi
+          echo "Attempt $i: Health check failed ($STATUS). Retrying in 5s..."
+          sleep 5
+        done
+
+        echo "Final failure. Container Logs:"
+        docker logs api-test
+        exit 1
+
+    - name: Test Prediction Logic
+      run: |
+        curl -X POST "http://localhost:8000/predict" \
+             -H "Content-Type: application/json" \
+             -d '{
+               "age": 63, "sex": 1, "cp": 3, "trestbps": 145, "chol": 233,
+               "fbs": 1, "restecg": 0, "thalach": 150, "exang": 0,
+               "oldpeak": 2.3, "slope": 0, "ca": 0, "thal": 1
+             }' > response.json
+
+        echo "Response:"
+        cat response.json
+
+        if grep -q "prediction" response.json; then
+            echo "Prediction endpoint returned valid JSON"
+        else
+            echo "Prediction endpoint failed"
+            docker logs api-test
+            exit 1
+        fi
+
   deploy-api:
     needs: run-pipeline
     if: github.event_name == 'push'
@@ -236,29 +282,26 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # FIX: Added Auth step here to solve 401 error
     - uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
         service_account: ${{ secrets.GCP_SA_EMAIL }}
-    
-    # Now set up gcloud/gsutil with these credentials
+
     - uses: google-github-actions/setup-gcloud@v2
 
     - run: gcloud auth configure-docker $REGION-docker.pkg.dev
-    
     - uses: google-github-actions/get-gke-credentials@v2
       with:
         cluster_name: ${{ env.CLUSTER_NAME }}
         location: ${{ env.ZONE }}
 
     - name: Download Production Model
-      # Using the Output from the previous job
       env:
         PR_NUM: ${{ needs.run-pipeline.outputs.pr_num }}
       run: |
         echo "Using PR_NUM: $PR_NUM"
         mkdir -p models
-        # This will now work because 'setup-gcloud' configured the credentials above
         gsutil cp gs://$BUCKET_NAME/production/model_v_${PR_NUM}/model.pkl models/model.pkl
 
     - name: Build & Push API
@@ -271,5 +314,4 @@ jobs:
         export SERVING_IMAGE_URI=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVING_IMAGE:latest
         envsubst < k8s/deployment.yaml | kubectl apply -f -
 
-        kubectl apply -f k8s/service.yaml
         kubectl rollout restart deployment/heart-api
