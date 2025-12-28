@@ -100,8 +100,8 @@ def train_model(df, config):
     X = df.drop(columns=[TARGET_COLUMN])
     y = df[TARGET_COLUMN]
     scaler = StandardScaler()
-    
-    splits =  split_data(X, y, config, False, 42)
+        
+    splits =  split_data(X, y, False, 42)
 
     algo_name = config['model_type'] 
     # 1. Choose Model Type
