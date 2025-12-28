@@ -22,7 +22,10 @@ NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "disease_present"
 
 def apply_feature_engineering_logic(df):
-    return one_hot_encode_features(df, CATEGORICAL_FEATURES) 
+    # Validation
+    if 'target' not in df.columns:
+        raise ValueError("Input data missing 'target' column. Pre-processing might be incorrect.")
+    return one_hot_encode_features(df) 
 
 # ================== FEATURE ENGINEERING ==================
 def one_hot_encode_features(

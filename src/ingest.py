@@ -69,7 +69,7 @@ def main():
 
     # 2. Save to GCS (Experimental Raw folder)
     gcs_uri = f"gs://{args.bucket}/data/raw/pr-{args.pr_number}/raw.csv"
-    df.to_csv(gcs_uri, index=False, header=False)
+    df.to_csv(gcs_uri, index=False)
     print(f"Ingested raw data to: {gcs_uri}")
 
     # 3. Log metadata to BigQuery
