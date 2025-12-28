@@ -133,7 +133,10 @@ def predict(data: PredictionInput):
 
     try:
         with INFERENCE_LATENCY.time():
-            X_scaled = scaler.transform(input_df)
+            if scaler is not None:
+                X_scaled = scaler.transform(input_df)
+            else:
+                X_scaled = input_df    
             prediction = int(model.predict(X_scaled)[0])
 
             if hasattr(model, "predict_proba"):
