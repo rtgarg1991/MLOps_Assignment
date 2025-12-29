@@ -38,7 +38,7 @@ VISUALS_DIR.mkdir(parents=True, exist_ok=True)
 TARGET_COLUMN = "disease_present"
 
 # MLFLOW CONFIG
-mlflow.set_experiment("Heart_Disease_Team_MLOps_L5")
+mlflow.set_experiment("Predict_Risk_Of_Heart_Disease")
 mlflow.set_tracking_uri("https://mlflow-tracking-abc123.a.run.app")
 
 def load_data(bucket_name, pr_number):
