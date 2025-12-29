@@ -166,8 +166,11 @@ def train_model(df, config):
 
         # Save evaluation Metrics
         for metric_name, metric_value in metrics.items():
-            if metric_value is not None:
+            if isinstance(metric_value, (int, float)):
                 mlflow.log_metric(metric_name, metric_value)
+            else:
+                # Log non-numeric values as tags instead
+                mlflow.set_tag(metric_name, str(metric_value))
 
         metrics_df = pd.DataFrame([metrics])
         metrics_df["timestamp"] = datetime.now().isoformat()
