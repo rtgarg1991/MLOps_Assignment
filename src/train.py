@@ -39,7 +39,7 @@ TARGET_COLUMN = "disease_present"
 
 # MLFLOW CONFIG
 mlflow.set_experiment("Heart_Disease_Team_MLOps_L5")
-# mlflow.set_tracking_uri("http://<GCP_MLFLOW_SERVER_IP>:5000")
+mlflow.set_tracking_uri("https://mlflow-tracking-abc123.a.run.app")
 
 def load_data(bucket_name, pr_number):
     client_gcs = storage.Client()
