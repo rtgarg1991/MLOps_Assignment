@@ -38,8 +38,9 @@ VISUALS_DIR.mkdir(parents=True, exist_ok=True)
 TARGET_COLUMN = "disease_present"
 
 # MLFLOW CONFIG
-mlflow.set_experiment("Predict_Risk_Of_Heart_Disease")
 mlflow.set_tracking_uri("http://mlflow-service:5000")
+mlflow.set_experiment("Predict_Risk_Of_Heart_Disease")
+
 
 def load_data(bucket_name, pr_number):
     client_gcs = storage.Client()
