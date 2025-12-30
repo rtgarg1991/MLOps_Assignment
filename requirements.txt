@@ -2,8 +2,6 @@ fastapi
 uvicorn
 scikit-learn
 pandas
-pytest
-httpx
 google-cloud-storage
 google-cloud-bigquery
 db-dtypes
@@ -17,5 +15,3 @@ seaborn
 joblib
 ucimlrepo
 mlflow
-black
-flake8

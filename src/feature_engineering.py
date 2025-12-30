@@ -13,21 +13,31 @@ CLEAN_DATA_PATH = DATA_DIR / "heart_disease_clean.csv"
 FEATURE_DATA_PATH = DATA_DIR / "heart_disease_features.csv"
 FEATURE_LIST_PATH = DATA_DIR / "feature_columns.txt"
 
-GCP_BUCKET_NAME = DATA_DIR.name        
+GCP_BUCKET_NAME = DATA_DIR.name
 GCP_DATA_PREFIX = "datasets/heart_disease"
 
 # ================== CONFIG ==================
-CATEGORICAL_FEATURES = ["sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"]
+CATEGORICAL_FEATURES = [
+    "sex",
+    "cp",
+    "fbs",
+    "restecg",
+    "exang",
+    "slope",
+    "ca",
+    "thal",
+]
 NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "disease_present"
 
+
 def apply_feature_engineering_logic(df):
-    return one_hot_encode_features(df, CATEGORICAL_FEATURES) 
+    return one_hot_encode_features(df, CATEGORICAL_FEATURES)
+
 
 # ================== FEATURE ENGINEERING ==================
 def one_hot_encode_features(
-    df: pd.DataFrame,
-    categorical_cols: List[str]
+    df: pd.DataFrame, categorical_cols: List[str]
 ) -> Tuple[pd.DataFrame, List[str]]:
     """
     One-hot encode categorical features and retain target column.
@@ -51,7 +61,9 @@ def one_hot_encode_features(
 
     if cat_cols:
         df_cat = df[cat_cols].astype(str)
-        df_cat_encoded = pd.get_dummies(df_cat, prefix=cat_cols, drop_first=False)
+        df_cat_encoded = pd.get_dummies(
+            df_cat, prefix=cat_cols, drop_first=False
+        )
         df_features = pd.concat([df_numeric, df_cat_encoded], axis=1)
     else:
         df_features = df_numeric
@@ -59,14 +71,11 @@ def one_hot_encode_features(
     feature_columns = list(df_features.columns)
 
     # Add target column
-    df_final = pd.concat(
-        [df_features, df[[TARGET_COLUMN]]],
-        axis=1
-    )
+    df_final = pd.concat([df_features, df[[TARGET_COLUMN]]], axis=1)
 
     print(f"  Total features: {len(feature_columns)}")
     print(f"  Final dataset shape: {df_final.shape}")
-    
+
     # Saving feature dataset
     df_features.to_csv(FEATURE_DATA_PATH, index=False)
     print(f"Feature dataset saved to {FEATURE_DATA_PATH}")
@@ -79,8 +88,8 @@ def one_hot_encode_features(
     print(f"Feature column list saved to {FEATURE_LIST_PATH}")
 
     return df_final
-    
-    
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", required=True)
@@ -92,26 +101,38 @@ def main():
 
     # LOGIC GATE: Use PR Processed if available, else Production
     pr_proc = f"data/processed/pr-{args.pr_number}/processed.csv"
-    input_path = pr_proc if bucket.blob(pr_proc).exists() else "data/processed/production/latest.csv"
-    
+    input_path = (
+        pr_proc
+        if bucket.blob(pr_proc).exists()
+        else "data/processed/production/latest.csv"
+    )
+
     print(f"Feature Engineering input: gs://{args.bucket}/{input_path}")
-    
+
     # Read WITH header (since pre-processing.py now adds it)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
     df_features = apply_feature_engineering_logic(df)
 
-    output_uri = f"gs://{args.bucket}/data/features/pr-{args.pr_number}/features.csv"
+    output_uri = (
+        f"gs://{args.bucket}/data/features/pr-{args.pr_number}/features.csv"
+    )
     df_features.to_csv(output_uri, index=False)
     print(f"Saved features to {output_uri}")
 
     # Log to BigQuery
-    bigquery.Client().insert_rows_json(f"{bigquery.Client().project}.ml_metadata.data_versions", [{
-        "data_type": "features", 
-        "pr_number": int(args.pr_number),
-        "gcs_path": output_uri, 
-        "status": "experiment", 
-        "created_at": datetime.now().isoformat()
-    }])
+    bigquery.Client().insert_rows_json(
+        f"{bigquery.Client().project}.ml_metadata.data_versions",
+        [
+            {
+                "data_type": "features",
+                "pr_number": int(args.pr_number),
+                "gcs_path": output_uri,
+                "status": "experiment",
+                "created_at": datetime.now().isoformat(),
+            }
+        ],
+    )
+
 
 if __name__ == "__main__":
-    main()    
+    main()

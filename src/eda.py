@@ -10,9 +10,19 @@ DATA_DIR = PROJECT_ROOT / "data"
 VISUALS_DIR = PROJECT_ROOT / "visuals"
 
 # ------------------ CONFIG ------------------
-CATEGORICAL_FEATURES = ["sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"]
+CATEGORICAL_FEATURES = [
+    "sex",
+    "cp",
+    "fbs",
+    "restecg",
+    "exang",
+    "slope",
+    "ca",
+    "thal",
+]
 NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "num"
+
 
 def run_eda(df: pd.DataFrame):
     print("Running EDA (before cleaning)...")
@@ -43,6 +53,7 @@ def run_eda(df: pd.DataFrame):
     plt.savefig(VISUALS_DIR / "correlations/correlation_heatmap.png")
     plt.close()
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", required=True)
@@ -54,17 +65,20 @@ def main():
 
     # LOGIC GATE: Use PR Raw if available, else Production
     pr_raw = f"data/raw/pr-{args.pr_number}/raw.csv"
-    input_path = pr_raw if bucket.blob(pr_raw).exists() else "data/raw/production/latest.csv"
-    
+    input_path = (
+        pr_raw
+        if bucket.blob(pr_raw).exists()
+        else "data/raw/production/latest.csv"
+    )
+
     print(f"EDA Input: gs://{args.bucket}/{input_path}")
-    
+
     # Read without header (raw data)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
-    
+
     # Run EDA
     run_eda(df)
-    
+
+
 if __name__ == "__main__":
-    main()     
-    
-    
+    main()

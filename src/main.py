@@ -11,7 +11,7 @@ from prometheus_client import Counter, Histogram
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("heart-api")
 
@@ -22,56 +22,61 @@ model_artifacts = None
 PREDICTION_COUNTER = Counter(
     "heart_prediction_total",
     "Total number of predictions made",
-    ["pred_class"]
+    ["pred_class"],
 )
 
 CONFIDENCE_HISTOGRAM = Histogram(
     "heart_prediction_confidence",
     "Distribution of prediction confidence scores",
-    buckets=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0]
+    buckets=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0],
 )
 
 INFERENCE_LATENCY = Histogram(
     "heart_model_processing_seconds",
-    "Time spent specifically on model inference"
+    "Time spent specifically on model inference",
 )
 
 AGE_DISTRIBUTION = Histogram(
     "heart_input_age_distribution",
     "Distribution of patient ages in requests",
-    buckets=[20, 30, 40, 50, 60, 70, 80]
+    buckets=[20, 30, 40, 50, 60, 70, 80],
 )
 
 RESTING_BP_DISTRIBUTION = Histogram(
     "heart_input_resting_bp_distribution",
     "Distribution of resting blood pressure",
-    buckets=[80, 100, 120, 140, 160, 180, 200]
+    buckets=[80, 100, 120, 140, 160, 180, 200],
 )
 
 CHOLESTEROL_DISTRIBUTION = Histogram(
     "heart_input_cholesterol_distribution",
     "Distribution of serum cholesterol levels",
-    buckets=[100, 150, 200, 250, 300, 350, 400]
+    buckets=[100, 150, 200, 250, 300, 350, 400],
 )
 
 MAX_HEART_RATE_DISTRIBUTION = Histogram(
     "heart_input_max_heart_rate_distribution",
     "Distribution of maximum heart rate achieved",
-    buckets=[60, 80, 100, 120, 140, 160, 180, 200]
+    buckets=[60, 80, 100, 120, 140, 160, 180, 200],
 )
+
 
 class DummyScaler:
     def transform(self, X):
         return X
 
+
 class DummyModel:
     def predict(self, X):
         import numpy as np
+
         return np.array([1])
 
     def predict_proba(self, X):
         import numpy as np
+
         return np.array([[0.05, 0.95]])
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -106,9 +111,11 @@ async def lifespan(app: FastAPI):
     yield
     model_artifacts = None
 
+
 app = FastAPI(title="Heart Disease Prediction API", lifespan=lifespan)
 
 Instrumentator().instrument(app).expose(app)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -123,6 +130,7 @@ async def log_requests(request: Request, call_next):
         f"Duration: {process_time:.2f}ms"
     )
     return response
+
 
 class PredictionInput(BaseModel):
     age: float
@@ -139,9 +147,11 @@ class PredictionInput(BaseModel):
     ca: float
     thal: float
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 @app.post("/predict")
 def predict(data: PredictionInput):
@@ -152,66 +162,63 @@ def predict(data: PredictionInput):
     model = model_artifacts["model"]
     scaler = model_artifacts["scaler"]
     feature_columns = [
-        c for c in model_artifacts["feature_columns"]
+        c
+        for c in model_artifacts["feature_columns"]
         if c != "disease_present"
     ]
 
     input_dict = data.model_dump()
     logger.info(f"Received prediction request: {input_dict}")
 
-    AGE_DISTRIBUTION.observe(input_dict['age'])
-    MAX_HEART_RATE_DISTRIBUTION.observe(input_dict['thalach'])
-    RESTING_BP_DISTRIBUTION.observe(input_dict['trestbps'])
-    CHOLESTEROL_DISTRIBUTION.observe(input_dict['chol'])
+    AGE_DISTRIBUTION.observe(input_dict["age"])
+    MAX_HEART_RATE_DISTRIBUTION.observe(input_dict["thalach"])
+    RESTING_BP_DISTRIBUTION.observe(input_dict["trestbps"])
+    CHOLESTEROL_DISTRIBUTION.observe(input_dict["chol"])
 
     input_df = pd.DataFrame([input_dict])
     categorical_cols = [
-                "sex",
-                "cp",
-                "fbs",
-                "restecg",
-                "exang",
-                "slope",
-                "ca",
-                "thal",
-            ]
+        "sex",
+        "cp",
+        "fbs",
+        "restecg",
+        "exang",
+        "slope",
+        "ca",
+        "thal",
+    ]
 
     try:
         with INFERENCE_LATENCY.time():
-            #Applying SAME one-hot encoding as training
+            # Applying SAME one-hot encoding as training
             input_encoded = pd.get_dummies(
-                input_df,
-                columns=categorical_cols,
-                drop_first=False
+                input_df, columns=categorical_cols, drop_first=False
             )
 
-            #Align with training feature schema
+            # Align with training feature schema
             input_encoded = input_encoded.reindex(
-                columns=feature_columns,
-                fill_value=0
+                columns=feature_columns, fill_value=0
             )
-            
+
             input_encoded = input_encoded.astype(int)
-            
+
             # Applying scaling only if scaler exists
             if scaler is not None:
                 X_scaled = scaler.transform(input_encoded)
             else:
-                X_scaled = input_encoded    
+                X_scaled = input_encoded
             prediction = int(model.predict(X_scaled)[0])
 
             if hasattr(model, "predict_proba"):
-                confidence = float(model.predict_proba(X_scaled)[0][prediction])
+                confidence = float(
+                    model.predict_proba(X_scaled)[0][prediction]
+                )
             else:
                 confidence = 1.0
 
         PREDICTION_COUNTER.labels(pred_class=str(prediction)).inc()
         CONFIDENCE_HISTOGRAM.observe(confidence)
 
-        result = {
-            "prediction": prediction,
-            "confidence": confidence
-        }
+        result = {"prediction": prediction, "confidence": confidence}
 
         logger.info(f"Prediction success: {result}")
         return result
@@ -220,6 +227,8 @@ def predict(data: PredictionInput):
         logger.error(f"Prediction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
