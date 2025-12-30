@@ -24,6 +24,15 @@ NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "num"
 
 
+def create_directories() -> None:
+    """
+    Create all required project directories.
+    """
+    core_dirs = [DATA_DIR, VISUALS_DIR]
+    for directory in core_dirs:
+        directory.mkdir(parents=True, exist_ok=True)
+
+
 def run_eda(df: pd.DataFrame):
     print("Running EDA (before cleaning)...")
 
@@ -73,6 +82,7 @@ def main():
 
     print(f"EDA Input: gs://{args.bucket}/{input_path}")
 
+    create_directories()
     # Read without header (raw data)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
 
