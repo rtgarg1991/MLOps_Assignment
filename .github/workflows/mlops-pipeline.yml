@@ -261,7 +261,7 @@ jobs:
         gh pr comment ${{ github.event.number }} --body-file body.md
 
   test-api-dry-run:
-    needs: changes
+    needs: [changes, unit-tests]
     if: ${{ needs.changes.outputs.api == 'true' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
