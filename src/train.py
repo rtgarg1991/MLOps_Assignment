@@ -123,10 +123,10 @@ def train_model(df, config):
 
         feature_columns = list(df.columns)
 
-        is_experiment = config.get("isExperiment", True)
+        # is_experiment = config.get("isExperiment", True)
 
         # Spliting data
-        splits = split_data(X, y, is_experiment, 42)
+        splits = split_data(X, y, False, 42)
 
         X_train = splits["X_train"]
         X_test = splits["X_test"]
