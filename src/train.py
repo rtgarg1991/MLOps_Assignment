@@ -5,6 +5,8 @@ import pickle
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
+import mlflow
+import mlflow.sklearn
 from datetime import datetime
 from google.cloud import storage, bigquery
 from sklearn.model_selection import train_test_split
@@ -34,6 +36,11 @@ VISUALS_DIR = PROJECT_ROOT / "visuals"
 metrics_path = VISUALS_DIR / "metrics.csv"
 VISUALS_DIR.mkdir(parents=True, exist_ok=True)
 TARGET_COLUMN = "disease_present"
+
+# MLFLOW CONFIG
+mlflow.set_tracking_uri("http://mlflow-service:5000")
+mlflow.set_experiment("Predict_Risk_Of_Heart_Disease")
+
 
 def load_data(bucket_name, pr_number):
     client_gcs = storage.Client()
@@ -99,69 +106,110 @@ def split_data(
 def train_model(df, config):
     """Trains a model based on the provided configuration dictionary."""
 
-    # Separating features and target
-    X = df.drop(columns=[TARGET_COLUMN])
-    y = df[TARGET_COLUMN]
-    
-    feature_columns = list(df.columns)
-
-    # Spliting data
-    splits = split_data(X, y, False, 42)
-
-    X_train = splits["X_train"]
-    X_test = splits["X_test"]
-    y_train = splits["y_train"]
-    y_test = splits["y_test"]
-
     algo_name = config["model_type"]
 
-    # Model selection and scaling
-    scaler = None 
-    if algo_name == "logistic_regression":
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+     # End any stray run
+    if mlflow.active_run():
+        mlflow.end_run()
 
-        model = LogisticRegression(
-            max_iter=config.get("max_iter", 1000)
+    # Start mlflow run
+    with mlflow.start_run(run_name=algo_name):
+
+        # Separating features and target
+        X = df.drop(columns=[TARGET_COLUMN])
+        y = df[TARGET_COLUMN]
+        
+        feature_columns = list(df.columns)
+
+        # Spliting data
+        splits = split_data(X, y, False, 42)
+
+        X_train = splits["X_train"]
+        X_test = splits["X_test"]
+        y_train = splits["y_train"]
+        y_test = splits["y_test"]
+
+        # Model selection and scaling
+        scaler = None 
+        if algo_name == "logistic_regression":
+            scaler = StandardScaler()
+            X_train = scaler.fit_transform(X_train)
+            X_test = scaler.transform(X_test)
+
+            model = LogisticRegression(
+                max_iter=config.get("max_iter", 1000)
+            )
+
+        elif algo_name == "random_forest":
+            model = RandomForestClassifier(
+                n_estimators=config.get("n_estimators", 100),
+                random_state=42
+            )
+
+        else:
+            raise ValueError(f"Unsupported model type: {algo_name}")
+        
+        # Save Model Params for experiment tracking
+        mlflow.log_param("model_type", algo_name)
+
+        for k, v in config.items():
+            mlflow.log_param(k, v)
+
+        if algo_name == "random_forest":
+            mlflow.log_param("n_estimators", model.n_estimators)
+    
+        # Train
+        model.fit(X_train, y_train)
+
+        # Evaluate
+        metrics = evaluate_model(model, X_test, y_test, algo_name)
+
+        # Save evaluation Metrics
+        for metric_name, metric_value in metrics.items():
+            if isinstance(metric_value, (int, float)):
+                mlflow.log_metric(metric_name, metric_value)
+            else:
+                # Log non-numeric values as tags instead
+                mlflow.set_tag(metric_name, str(metric_value))
+
+        metrics_df = pd.DataFrame([metrics])
+        metrics_df["timestamp"] = datetime.now().isoformat()
+        metrics_df.to_csv(
+            metrics_path,
+            mode="a",
+            header=not metrics_path.exists(),
+            index=False
         )
 
-    elif algo_name == "random_forest":
-        model = RandomForestClassifier(
-            n_estimators=config.get("n_estimators", 100),
-            random_state=42
+        # Artifacts
+        cm_path = plot_confusion_matrix(model, X_test, y_test, algo_name)
+        pr_path = plot_precision_recall(model, X_test, y_test, algo_name)
+        roc_path = plot_roc_curve(model, X_test, y_test, algo_name)
+        cr_path = save_classification_report(model, X_test, y_test, algo_name)
+
+        artifacts = [
+            (cm_path, "confusion_matrix.png"),
+            (pr_path, "precision_recall.png"),
+            (roc_path, "roc_curve.png"),
+            (cr_path, "classification_report.csv"),
+        ]
+
+        # Save model artifacts
+        for local_file, artifact_name in artifacts:
+            mlflow.log_artifact(local_file, artifact_path="evaluation")
+
+        # Save Model
+        mlflow.sklearn.log_model(
+            sk_model=model,
+            artifact_path="model",
+            input_example=X_train[:5],
         )
 
-    else:
-        raise ValueError(f"Unsupported model type: {algo_name}")
-
-    # Train
-    model.fit(X_train, y_train)
-
-    # Evaluate
-    metrics = evaluate_model(model, X_test, y_test, algo_name)
-
-    metrics_df = pd.DataFrame([metrics])
-    metrics_df["timestamp"] = datetime.now().isoformat()
-    metrics_df.to_csv(
-        metrics_path,
-        mode="a",
-        header=not metrics_path.exists(),
-        index=False
-    )
-
-    # Artifacts
-    cm_path = plot_confusion_matrix(model, X_test, y_test, algo_name)
-    pr_path = plot_precision_recall(model, X_test, y_test, algo_name)
-    roc_path = plot_roc_curve(model, X_test, y_test, algo_name)
-    cr_path = save_classification_report(model, X_test, y_test, algo_name)
-
-    artifacts = [
-        (cm_path, "confusion_matrix.png"),
-        (pr_path, "precision_recall.png"),
-        (roc_path, "roc_curve.png"),
-        (cr_path, "classification_report.csv"),
-    ]
+        if scaler is not None:
+            mlflow.log_artifact(
+                local_path=str(metrics_path),
+                artifact_path="preprocessing"
+            )
 
     return model, scaler, metrics, artifacts, feature_columns
 
