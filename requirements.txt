@@ -17,4 +17,3 @@ seaborn
 joblib
 ucimlrepo
 mlflow
-protobuf==3.20.3
