@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+      - name: mlflow
+        image: python:3.10
+        ports:
+        - containerPort: 5000
+        command: ["/bin/sh", "-c"]
+        args:
+          - >-
+            pip install mlflow google-cloud-storage &&
+            mlflow server
+            --backend-store-uri sqlite:///mlflow.db
+            --default-artifact-root gs://mlops-final-001-mlops-artifacts/mlflow
+            --host 0.0.0.0
+            --port 5000
+            --allowed-hosts "*"

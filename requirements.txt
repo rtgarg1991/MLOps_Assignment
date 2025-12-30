@@ -2,8 +2,6 @@ fastapi
 uvicorn
 scikit-learn
 pandas
-pytest
-httpx
 google-cloud-storage
 google-cloud-bigquery
 db-dtypes
