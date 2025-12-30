@@ -361,7 +361,7 @@ def main():
             f"PR {args.pr_number}"
         )
         best_config = fetch_best_config(project_id, args.pr_number)
-        config = best_config if best_config else {}
+        config = best_config if best_config else {"model_type": args.model_type}
     else:
         config = {}
 
