@@ -1,6 +1,12 @@
 # tests/test_train.py
+import sys
+from unittest.mock import MagicMock
 import pandas as pd
-from src.train import train_model
+
+# Mock mlflow BEFORE importing src.train
+sys.modules["mlflow"] = MagicMock()
+
+from src.train import train_model  
 
 
 def test_train_model_outputs():
@@ -22,4 +28,5 @@ def test_train_model_outputs():
     assert isinstance(metrics, dict)
     assert "accuracy" in metrics
     assert isinstance(artifacts, list)
+
 
