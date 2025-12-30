@@ -24,15 +24,6 @@ NUMERIC_FEATURES = ["age", "trestbps", "chol", "thalach", "oldpeak"]
 TARGET_COLUMN = "num"
 
 
-def create_directories() -> None:
-    """
-    Create all required project directories.
-    """
-    core_dirs = [DATA_DIR, VISUALS_DIR]
-    for directory in core_dirs:
-        directory.mkdir(parents=True, exist_ok=True)
-
-
 def run_eda(df: pd.DataFrame):
     print("Running EDA (before cleaning)...")
 
@@ -44,6 +35,7 @@ def run_eda(df: pd.DataFrame):
     plt.tight_layout()
 
     file_path = VISUALS_DIR / "missing_values" / "missing_values.png"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(file_path)
     plt.close()
 
@@ -58,6 +50,7 @@ def run_eda(df: pd.DataFrame):
             plt.tight_layout()
 
             file_path = VISUALS_DIR / "distributions" / f"{col}.png"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(file_path)
             plt.close()
 
@@ -71,6 +64,7 @@ def run_eda(df: pd.DataFrame):
     plt.tight_layout()
 
     file_path = VISUALS_DIR / "correlations" / "correlation_heatmap.png"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(file_path)
     plt.close()
 
@@ -99,7 +93,6 @@ def main():
 
     print(f"EDA Input: gs://{args.bucket}/{input_path}")
 
-    create_directories()
     # Read without header (raw data)
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
 

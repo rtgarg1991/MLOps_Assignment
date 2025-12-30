@@ -62,11 +62,11 @@ jobs:
         pip install -r requirements.txt
         pip install flake8 pytest httpx
 
-    # - name: Run Lint
-    #   run: |
-    #     # Set PYTHONPATH so tests can find 'src' module
-    #     export PYTHONPATH=$PYTHONPATH:.
-    #     flake8 src
+    - name: Run Lint
+      run: |
+        # Set PYTHONPATH so tests can find 'src' module
+        export PYTHONPATH=$PYTHONPATH:.
+        flake8 src
 
     - name: Run UnitTests
       run: |
