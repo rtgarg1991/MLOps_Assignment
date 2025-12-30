@@ -43,7 +43,7 @@ jobs:
           train: ['src/train.py', 'requirements.txt', 'Dockerfile']
           api: ['src/main.py', 'Dockerfile.serve', 'requirements.txt']
 
-  unit-tests:
+  unit-tests-and-lint:
     needs: changes
     # Run tests if API or Training code changed, or if it's a PR
     if: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'pull_request' }}
@@ -61,14 +61,21 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Pytest
+    - name: Run Lint
+      run: |
+        # Set PYTHONPATH so tests can find 'src' module
+        export PYTHONPATH=$PYTHONPATH:.
+        flake8 src tests
+        black --check src tests
+
+    - name: Run UnitTests
       run: |
         # Set PYTHONPATH so tests can find 'src' module
         export PYTHONPATH=$PYTHONPATH:.
         pytest tests/
 
   build-trainer:
-    needs: [changes, unit-tests]
+    needs: [changes, unit-tests-and-lint]
     if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -260,7 +267,7 @@ jobs:
         gh pr comment ${{ github.event.number }} --body-file body.md
 
   test-api-dry-run:
-    needs: [changes, unit-tests]
+    needs: [changes, unit-tests-and-lint]
     if: ${{ needs.changes.outputs.api == 'true' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:

@@ -37,6 +37,7 @@ def ingest_data() -> pd.DataFrame:
     print(f"Dataset saved to: {file_path}")
     print(f"Dataset loaded: {df.shape[0]} rows, {df.shape[1]} columns")
     print(df.head())
+    print("ingest done")
 
     return df
 

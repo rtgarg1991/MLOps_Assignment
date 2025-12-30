@@ -17,3 +17,5 @@ seaborn
 joblib
 ucimlrepo
 mlflow
+black
+flake8
