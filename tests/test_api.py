@@ -1,14 +1,37 @@
 # tests/test_api.py
 from fastapi.testclient import TestClient
-from src.main import app
+import src.main as main
+
 
 def test_health():
-    with TestClient(app) as client:
+    with TestClient(main.app) as client:
         r = client.get("/health")
         assert r.status_code == 200
         assert r.json() == {"status": "healthy"}
 
+
 def test_predict_structure():
+    # Ensure model_artifacts exists with feature_columns for the test
+    main.model_artifacts = {
+        "model": main.DummyModel(),
+        "scaler": main.DummyScaler(),
+        "feature_columns": [
+            "age",
+            "sex",
+            "cp",
+            "trestbps",
+            "chol",
+            "fbs",
+            "restecg",
+            "thalach",
+            "exang",
+            "oldpeak",
+            "slope",
+            "ca",
+            "thal",
+        ],
+    }
+
     payload = {
         "age": 55,
         "sex": 1,
@@ -22,19 +45,21 @@ def test_predict_structure():
         "oldpeak": 1.2,
         "slope": 2,
         "ca": 0,
-        "thal": 3
+        "thal": 3,
     }
 
-    with TestClient(app) as client:
+    with TestClient(main.app) as client:
         r = client.post("/predict", json=payload)
-        assert r.status_code == 200
-        body = r.json()
-        assert "prediction" in body
-        assert "confidence" in body
-        assert body["prediction"] in [0, 1]
-        assert isinstance(body["confidence"], float)
+
+    assert r.status_code == 200
+    body = r.json()
+    assert "prediction" in body
+    assert "confidence" in body
+    assert body["prediction"] in [0, 1]
+    assert isinstance(body["confidence"], float)
+
 
 def test_predict_invalid_data():
-    with TestClient(app) as client:
+    with TestClient(main.app) as client:
         r = client.post("/predict", json={"age": 50})
-        assert r.status_code == 422
+    assert r.status_code == 422

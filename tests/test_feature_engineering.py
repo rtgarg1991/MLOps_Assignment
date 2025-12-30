@@ -2,12 +2,9 @@
 import pandas as pd
 from src.feature_engineering import one_hot_encode_features, TARGET_COLUMN
 
+
 def test_one_hot_encoding():
-    df = pd.DataFrame({
-        "age": [50, 60],
-        "sex": [0, 1],
-        TARGET_COLUMN: [0, 1]
-    })
+    df = pd.DataFrame({"age": [50, 60], "sex": [0, 1], TARGET_COLUMN: [0, 1]})
 
     out = one_hot_encode_features(df, ["sex"])
 

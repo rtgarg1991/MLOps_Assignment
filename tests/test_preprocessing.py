@@ -16,12 +16,7 @@ clean_data = pre_processing.clean_data
 
 
 def test_clean_data_converts_question_marks_to_nan():
-    df = pd.DataFrame({
-        "age": [50, "?"],
-        "sex": [1, 0],
-        "cp": [3, 2],
-        "num": [0, 1]
-    })
+    df = pd.DataFrame({"age": [50, "?"], "sex": [1, 0], "cp": [3, 2], "num": [0, 1]})
 
     cleaned = clean_data(df)
 
