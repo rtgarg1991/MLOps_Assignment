@@ -101,7 +101,7 @@ def main():
 
     create_directories()
     # Read without header (raw data)
-    df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
+    df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
 
     # Run EDA
     artifacts = run_eda(df)
