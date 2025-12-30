@@ -122,7 +122,7 @@ def train_model(df, config):
         y = df[TARGET_COLUMN]
 
         feature_columns = list(df.columns)
-        
+
         is_experiment = config.get("isExperiment", False)
 
         # Spliting data
@@ -170,7 +170,6 @@ def train_model(df, config):
             if isinstance(metric_value, (int, float)):
                 mlflow.log_metric(metric_name, metric_value)
             else:
-                # Log non-numeric values as tags instead
                 mlflow.set_tag(metric_name, str(metric_value))
 
         metrics_df = pd.DataFrame([metrics])
@@ -195,11 +194,9 @@ def train_model(df, config):
             (cr_path, "classification_report.csv"),
         ]
 
-        # Save model artifacts
         for local_file, artifact_name in artifacts:
             mlflow.log_artifact(local_file, artifact_path="evaluation")
 
-        # Save Model
         mlflow.sklearn.log_model(
             sk_model=model,
             artifact_path="model",
@@ -214,7 +211,6 @@ def train_model(df, config):
     return model, scaler, metrics, artifacts, feature_columns
 
 
-# ================== EVALUATION ==================
 def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, Any]:
     y_pred = model.predict(X_test)
 
@@ -314,8 +310,6 @@ def log_to_bigquery(project_id, table_id, row):
 
 def fetch_best_config(project_id, pr_number):
     client = bigquery.Client(project=project_id)
-    # LOGIC UPDATE: Select best accuracy ONLY from the latest run_id
-    # for this PR
     query = f"""
         SELECT config_params
         FROM `{project_id}.ml_metadata.experiments`
@@ -358,18 +352,19 @@ def main():
     bucket_name = args.model_dir.replace("gs://", "").split("/")[0]
 
     df = load_data(bucket_name, args.pr_number)
-    
+
     is_experiment = args.mode != "full_training"
 
     if args.mode == "full_training":
         print(
-            f"Production Training: Fetching best config for \
-                PR {args.pr_number}"
+            f"Production Training: Fetching best config for "
+            f"PR {args.pr_number}"
         )
         best_config = fetch_best_config(project_id, args.pr_number)
         config = best_config if best_config else {}
     else:
         config = {}
+
     config["model_type"] = args.model_type
     config["isExperiment"] = is_experiment
 
@@ -377,7 +372,6 @@ def main():
         df, config
     )
 
-    # Save Model Locally
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     local_model_path = "/tmp/model.pkl"
     with open(local_model_path, "wb") as f:
@@ -394,7 +388,6 @@ def main():
     client_gcs = storage.Client(project=project_id)
     bucket = client_gcs.bucket(bucket_name)
 
-    # Determine Destination Paths
     if args.mode == "experiment":
         subpath = f"experiments/pr-{args.pr_number}/{timestamp}"
         tracking_row = {
@@ -414,7 +407,6 @@ def main():
             project_id, f"{project_id}.ml_metadata.experiments", tracking_row
         )
     else:
-        # PRODUCTION MODE
         subpath = f"production/model_v_{args.pr_number}"
         prod_row = {
             "model_id": f"heart-model-v{args.pr_number}",
@@ -430,21 +422,15 @@ def main():
             prod_row,
         )
 
-    # --- UPLOAD MODEL & ARTIFACTS ---
     print(f"Uploading artifacts to {subpath}...")
 
-    # 1. Model
     bucket.blob(f"{subpath}/model.pkl").upload_from_filename(local_model_path)
 
-    # 2. Images (Confusion Matrix, etc.)
     for local_file, remote_name in artifacts:
         blob_path = f"{subpath}/{remote_name}"
         bucket.blob(blob_path).upload_from_filename(local_file)
         print(f" - Uploaded: {remote_name}")
 
-    # --- ADDED: PRINT METRICS FOR GITHUB ACTIONS LOG SCRAPER ---
-    # This allows the runner to see the metrics without needing
-    # BigQuery permissions
     final_metrics = {
         "run_id": timestamp,
         "model_type": metrics["model"],

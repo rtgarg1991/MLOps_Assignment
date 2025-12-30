@@ -98,7 +98,7 @@ def main():
 
     # Run EDA
     artifacts = run_eda(df)
-    subpath = f"/data/eda/pr-{args.pr_number}"
+    subpath = f"data/eda/pr-{args.pr_number}"
 
     # Upload EDA files
     for local_file, remote_name in artifacts:
