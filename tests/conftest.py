@@ -13,6 +13,7 @@ google_cloud = types.ModuleType("google.cloud")
 google_cloud_storage = types.ModuleType("google.cloud.storage")
 google_cloud_bigquery = types.ModuleType("google.cloud.bigquery")
 
+
 class DummyBlob:
     def exists(self):
         return False
@@ -20,12 +21,14 @@ class DummyBlob:
     def upload_from_filename(self, *args, **kwargs):
         return None
 
+
 class DummyBucket:
     def blob(self, *args, **kwargs):
         return DummyBlob()
 
     def copy_blob(self, *args, **kwargs):
         return None
+
 
 class DummyClient:
     def __init__(self, *args, **kwargs):
@@ -41,7 +44,9 @@ class DummyClient:
         class DummyJob:
             def result(self_inner):
                 return []
+
         return DummyJob()
+
 
 google_cloud_storage.Client = DummyClient
 google_cloud_bigquery.Client = DummyClient

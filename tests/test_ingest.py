@@ -3,6 +3,7 @@ import pandas as pd
 from unittest.mock import patch, MagicMock
 from src.ingest import ingest_data
 
+
 @patch("ucimlrepo.fetch_ucirepo")
 def test_ingest_returns_dataframe(mock_fetch):
     fake = MagicMock()
