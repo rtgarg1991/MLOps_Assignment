@@ -37,14 +37,39 @@ jobs:
       id: filter
       with:
         filters: |
-          data: ['data/processed.cleveland.data', 'data/raw_version.txt']
+          data: ['data/processed.cleveland.data', 'data/raw_version.txt', 'src/eda.py']
           prep: ['src/pre-processing.py']
           feat: ['src/feature_engineering.py']
           train: ['src/train.py', 'requirements.txt', 'Dockerfile']
           api: ['src/main.py', 'Dockerfile.serve', 'requirements.txt']
 
-  build-trainer:
+  unit-tests:
     needs: changes
+    # Run tests if API or Training code changed, or if it's a PR
+    if: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.train == 'true' || github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest httpx
+
+    - name: Run Pytest
+      run: |
+        # Set PYTHONPATH so tests can find 'src' module
+        export PYTHONPATH=$PYTHONPATH:.
+        pytest tests/
+
+  build-trainer:
+    needs: [changes, unit-tests]
     if: ${{ needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -121,6 +146,17 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
+    - name: Run EDA
+      if: needs.changes.outputs.data == 'true'
+      run: |
+        export JOB_NAME=eda-$SHORT_SHA
+        export CMD='["python", "src/eda.py"]'
+        export ARGS='["--bucket='${BUCKET_NAME}'", "--pr-number='${PR_NUMBER}'"]'
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+
+        envsubst < k8s/universal-job.yaml | kubectl apply -f -
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
+
     - name: Run Pre-processing
       if: needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true'
       run: |
@@ -145,7 +181,7 @@ jobs:
 
     - name: Promote Artifacts to Production
       if: |
-        github.event_name == 'push' && 
+        github.event_name == 'push' &&
         (needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true' || needs.changes.outputs.train == 'true')
       run: |
         export JOB_NAME=promote-$SHORT_SHA
