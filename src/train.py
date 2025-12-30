@@ -122,9 +122,11 @@ def train_model(df, config):
         y = df[TARGET_COLUMN]
 
         feature_columns = list(df.columns)
+        
+        is_experiment = config.get("isExperiment", False)
 
         # Spliting data
-        splits = split_data(X, y, False, 42)
+        splits = split_data(X, y, is_experiment, 42)
 
         X_train = splits["X_train"]
         X_test = splits["X_test"]
@@ -356,6 +358,8 @@ def main():
     bucket_name = args.model_dir.replace("gs://", "").split("/")[0]
 
     df = load_data(bucket_name, args.pr_number)
+    
+    is_experiment = args.mode != "full_training"
 
     if args.mode == "full_training":
         print(
@@ -363,11 +367,11 @@ def main():
                 PR {args.pr_number}"
         )
         best_config = fetch_best_config(project_id, args.pr_number)
-        config = (
-            best_config if best_config else {"model_type": args.model_type}
-        )
+        config = best_config if best_config else {}
     else:
-        config = {"model_type": args.model_type}
+        config = {}
+    config["model_type"] = args.model_type
+    config["isExperiment"] = is_experiment
 
     model, scaler, metrics, artifacts, feature_columns = train_model(
         df, config
