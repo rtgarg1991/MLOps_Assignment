@@ -5,6 +5,7 @@ import pandas as pd
 
 # Mock mlflow BEFORE importing src.train
 sys.modules["mlflow"] = MagicMock()
+sys.modules["mlflow.sklearn"] = MagicMock()
 
 from src.train import train_model  
 
