@@ -42,6 +42,24 @@ AGE_DISTRIBUTION = Histogram(
     buckets=[20, 30, 40, 50, 60, 70, 80]
 )
 
+RESTING_BP_DISTRIBUTION = Histogram(
+    "heart_input_resting_bp_distribution",
+    "Distribution of resting blood pressure",
+    buckets=[80, 100, 120, 140, 160, 180, 200]
+)
+
+CHOLESTEROL_DISTRIBUTION = Histogram(
+    "heart_input_cholesterol_distribution",
+    "Distribution of serum cholesterol levels",
+    buckets=[100, 150, 200, 250, 300, 350, 400]
+)
+
+MAX_HEART_RATE_DISTRIBUTION = Histogram(
+    "heart_input_max_heart_rate_distribution",
+    "Distribution of maximum heart rate achieved",
+    buckets=[60, 80, 100, 120, 140, 160, 180, 200]
+)
+
 class DummyScaler:
     def transform(self, X):
         return X
@@ -67,7 +85,22 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Model not found at {MODEL_PATH}. Using DUMMY model.")
         model_artifacts = {
             "model": DummyModel(),
-            "scaler": DummyScaler()
+            "scaler": DummyScaler(),
+            "feature_columns": [
+                "age",
+                "sex",
+                "cp",
+                "trestbps",
+                "chol",
+                "fbs",
+                "restecg",
+                "thalach",
+                "exang",
+                "oldpeak",
+                "slope",
+                "ca",
+                "thal",
+            ],
         }
 
     yield
@@ -127,6 +160,9 @@ def predict(data: PredictionInput):
     logger.info(f"Received prediction request: {input_dict}")
 
     AGE_DISTRIBUTION.observe(input_dict['age'])
+    MAX_HEART_RATE_DISTRIBUTION.observe(input_dict['thalach'])
+    RESTING_BP_DISTRIBUTION.observe(input_dict['trestbps'])
+    CHOLESTEROL_DISTRIBUTION.observe(input_dict['chol'])
 
     input_df = pd.DataFrame([input_dict])
     categorical_cols = [
