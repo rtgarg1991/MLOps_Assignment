@@ -37,7 +37,7 @@ jobs:
       id: filter
       with:
         filters: |
-          data: ['data/processed.cleveland.data', 'data/raw_version.txt', 'src/eda.py']
+          data: ['data/processed.cleveland.data', 'data/raw_version.txt', 'src/eda.py', , 'src/ingest.py']
           prep: ['src/pre-processing.py']
           feat: ['src/feature_engineering.py']
           train: ['src/train.py', 'requirements.txt', 'Dockerfile']
