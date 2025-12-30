@@ -36,31 +36,48 @@ def create_directories() -> None:
 def run_eda(df: pd.DataFrame):
     print("Running EDA (before cleaning)...")
 
-    # Missing values
+    artifacts = []
+
+    # ---------------- Missing values ----------------
     missing = df.isna().sum()
     missing[missing > 0].plot(kind="bar", title="Missing Values")
     plt.tight_layout()
-    plt.savefig(VISUALS_DIR / "missing_values/missing_values.png")
+
+    file_path = VISUALS_DIR / "missing_values" / "missing_values.png"
+    plt.savefig(file_path)
     plt.close()
 
-    # Numeric distributions
+    artifacts.append((file_path, "missing_values.png"))
+
+    # ---------------- Numeric distributions ----------------
     for col in NUMERIC_FEATURES:
         if col in df.columns:
             plt.figure()
             sns.histplot(df[col], kde=True)
             plt.title(f"Distribution of {col}")
             plt.tight_layout()
-            plt.savefig(VISUALS_DIR / "distributions" / f"{col}.png")
+
+            file_path = VISUALS_DIR / "distributions" / f"{col}.png"
+            plt.savefig(file_path)
             plt.close()
 
-    # Correlation heatmap
+            artifacts.append((file_path, f"{col}.png"))
+
+    # ---------------- Correlation heatmap ----------------
     corr = df[NUMERIC_FEATURES + [TARGET_COLUMN]].corr()
     plt.figure(figsize=(8, 6))
     sns.heatmap(corr, annot=True, cmap="coolwarm")
     plt.title("Correlation Heatmap")
     plt.tight_layout()
-    plt.savefig(VISUALS_DIR / "correlations/correlation_heatmap.png")
+
+    file_path = VISUALS_DIR / "correlations" / "correlation_heatmap.png"
+    plt.savefig(file_path)
     plt.close()
+
+    artifacts.append((file_path, "correlation_heatmap.png"))
+
+    return artifacts
+
 
 
 def main():
@@ -87,7 +104,14 @@ def main():
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}", header=None)
 
     # Run EDA
-    run_eda(df)
+    artifacts = run_eda(df)
+    subpath = f"{args.bucket}/data/eda/pr-{args.pr_number}"
+    
+   #Upload EDA files  
+    for local_file, remote_name in artifacts:
+        blob_path = f"{subpath}/{remote_name}"
+        bucket.blob(blob_path).upload_from_filename(local_file)
+        print(f" - Uploaded: {remote_name}")    
 
 
 if __name__ == "__main__":
