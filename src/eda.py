@@ -1,8 +1,9 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
 import argparse
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 from google.cloud import storage
 
 PROJECT_ROOT = Path.cwd()
@@ -73,7 +74,6 @@ def run_eda(df: pd.DataFrame):
     return artifacts
 
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", required=True)
@@ -93,18 +93,18 @@ def main():
 
     print(f"EDA Input: gs://{args.bucket}/{input_path}")
 
-    # Read without header (raw data)
+    # Read raw data
     df = pd.read_csv(f"gs://{args.bucket}/{input_path}")
 
     # Run EDA
     artifacts = run_eda(df)
     subpath = f"{args.bucket}/data/eda/pr-{args.pr_number}"
-    
-   #Upload EDA files  
+
+    # Upload EDA files
     for local_file, remote_name in artifacts:
         blob_path = f"{subpath}/{remote_name}"
         bucket.blob(blob_path).upload_from_filename(local_file)
-        print(f" - Uploaded: {remote_name}")    
+        print(f" - Uploaded: {remote_name}")
 
 
 if __name__ == "__main__":
