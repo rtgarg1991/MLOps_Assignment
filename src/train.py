@@ -23,12 +23,24 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay,
     roc_curve,
     precision_recall_curve,
-    classification_report
+    classification_report,
 )
 
 COLUMNS = [
-    "age","sex","cp","trestbps","chol","fbs","restecg",
-    "thalach","exang","oldpeak","slope","ca","thal","target"
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal",
+    "target",
 ]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,57 +61,48 @@ def load_data(bucket_name, pr_number):
     # LOGIC GATE: Use PR Features if available, else Production Features
     pr_feat_path = f"data/features/pr-{pr_number}/features.csv"
     prod_feat_path = "data/features/production/features.csv"
-    
-    input_path = pr_feat_path if bucket.blob(pr_feat_path).exists() else prod_feat_path
+
+    input_path = (
+        pr_feat_path if bucket.blob(pr_feat_path).exists() else prod_feat_path
+    )
     input_uri = f"gs://{bucket_name}/{input_path}"
     print(f"Training loading features from: {input_uri}")
-    
+
     return pd.read_csv(input_uri)
 
-def split_data(
-    X: pd.DataFrame,
-    y: pd.Series,
-    is_experimental: bool,
-    random_state: int
-) -> Dict[str, Any]:
 
+def split_data(
+    X: pd.DataFrame, y: pd.Series, is_experimental: bool, random_state: int
+) -> Dict[str, Any]:
     if is_experimental:
         print("Experimental mode → using only 80% data (60% train, 20% test)")
 
         # Drop 20% data
         X_used, _, y_used, _ = train_test_split(
-            X,
-            y,
-            test_size=0.2,
-            stratify=y,
-            random_state=random_state
+            X, y, test_size=0.2, stratify=y, random_state=random_state
         )
 
         # Split remaining 80% → 60/20
         X_train, X_test, y_train, y_test = train_test_split(
             X_used,
             y_used,
-            test_size=0.25,   # 20 / 80
+            test_size=0.25,  # 20 / 80
             stratify=y_used,
-            random_state=random_state
+            random_state=random_state,
         )
 
     else:
         print("Standard mode → using full data (80% train, 20% test)")
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=0.2,
-            stratify=y,
-            random_state=random_state
+            X, y, test_size=0.2, stratify=y, random_state=random_state
         )
 
     return {
         "X_train": X_train,
         "X_test": X_test,
         "y_train": y_train,
-        "y_test": y_test
+        "y_test": y_test,
     }
 
 
@@ -108,17 +111,16 @@ def train_model(df, config):
 
     algo_name = config["model_type"]
 
-     # End any stray run
+    # End any stray run
     if mlflow.active_run():
         mlflow.end_run()
 
     # Start mlflow run
     with mlflow.start_run(run_name=algo_name):
-
         # Separating features and target
         X = df.drop(columns=[TARGET_COLUMN])
         y = df[TARGET_COLUMN]
-        
+
         feature_columns = list(df.columns)
 
         # Spliting data
@@ -130,25 +132,22 @@ def train_model(df, config):
         y_test = splits["y_test"]
 
         # Model selection and scaling
-        scaler = None 
+        scaler = None
         if algo_name == "logistic_regression":
             scaler = StandardScaler()
             X_train = scaler.fit_transform(X_train)
             X_test = scaler.transform(X_test)
 
-            model = LogisticRegression(
-                max_iter=config.get("max_iter", 1000)
-            )
+            model = LogisticRegression(max_iter=config.get("max_iter", 1000))
 
         elif algo_name == "random_forest":
             model = RandomForestClassifier(
-                n_estimators=config.get("n_estimators", 100),
-                random_state=42
+                n_estimators=config.get("n_estimators", 100), random_state=42
             )
 
         else:
             raise ValueError(f"Unsupported model type: {algo_name}")
-        
+
         # Save Model Params for experiment tracking
         mlflow.log_param("model_type", algo_name)
 
@@ -157,7 +156,7 @@ def train_model(df, config):
 
         if algo_name == "random_forest":
             mlflow.log_param("n_estimators", model.n_estimators)
-    
+
         # Train
         model.fit(X_train, y_train)
 
@@ -169,7 +168,6 @@ def train_model(df, config):
             if isinstance(metric_value, (int, float)):
                 mlflow.log_metric(metric_name, metric_value)
             else:
-                # Log non-numeric values as tags instead
                 mlflow.set_tag(metric_name, str(metric_value))
 
         metrics_df = pd.DataFrame([metrics])
@@ -178,7 +176,7 @@ def train_model(df, config):
             metrics_path,
             mode="a",
             header=not metrics_path.exists(),
-            index=False
+            index=False,
         )
 
         # Artifacts
@@ -194,11 +192,9 @@ def train_model(df, config):
             (cr_path, "classification_report.csv"),
         ]
 
-        # Save model artifacts
         for local_file, artifact_name in artifacts:
             mlflow.log_artifact(local_file, artifact_path="evaluation")
 
-        # Save Model
         mlflow.sklearn.log_model(
             sk_model=model,
             artifact_path="model",
@@ -207,14 +203,12 @@ def train_model(df, config):
 
         if scaler is not None:
             mlflow.log_artifact(
-                local_path=str(metrics_path),
-                artifact_path="preprocessing"
+                local_path=str(metrics_path), artifact_path="preprocessing"
             )
 
     return model, scaler, metrics, artifacts, feature_columns
 
 
-# ================== EVALUATION ==================
 def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, Any]:
     y_pred = model.predict(X_test)
 
@@ -230,14 +224,17 @@ def evaluate_model(model, X_test, y_test, model_name: str) -> Dict[str, Any]:
         "precision": float(precision_score(y_test, y_pred, zero_division=0)),
         "recall": float(recall_score(y_test, y_pred, zero_division=0)),
         "f1": float(f1_score(y_test, y_pred, zero_division=0)),
-        "roc_auc": float(roc_auc) if roc_auc is not None else None
+        "roc_auc": float(roc_auc) if roc_auc is not None else None,
     }
 
-def plot_confusion_matrix(model, X_test, y_test, model_name: str)-> Path:
+
+def plot_confusion_matrix(model, X_test, y_test, model_name: str) -> Path:
     cm = confusion_matrix(y_test, model.predict(X_test))
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    disp = ConfusionMatrixDisplay(cm, display_labels=["No Disease", "Disease"])
+    disp = ConfusionMatrixDisplay(
+        cm, display_labels=["No Disease", "Disease"]
+    )
     disp.plot(ax=ax, cmap="Blues", colorbar=True)
     ax.set_title(f"Confusion Matrix - {model_name}")
     plt.tight_layout()
@@ -246,10 +243,11 @@ def plot_confusion_matrix(model, X_test, y_test, model_name: str)-> Path:
     plt.close(fig)
     return file_path
 
-def plot_precision_recall(model, X_test, y_test, model_name: str)-> Path:
+
+def plot_precision_recall(model, X_test, y_test, model_name: str) -> Path:
     y_proba = model.predict_proba(X_test)[:, 1]
     precision, recall, _ = precision_recall_curve(y_test, y_proba)
-    precision_recall_path = VISUALS_DIR / f"precision_recall_{model_name}.png" 
+    precision_recall_path = VISUALS_DIR / f"precision_recall_{model_name}.png"
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.plot(recall, precision, linewidth=2)
     ax.set_xlabel("Recall")
@@ -259,9 +257,9 @@ def plot_precision_recall(model, X_test, y_test, model_name: str)-> Path:
     fig.savefig(precision_recall_path, dpi=300)
     plt.close(fig)
     return precision_recall_path
-    
 
-def plot_roc_curve(model, X_test, y_test, model_name: str)-> Path:
+
+def plot_roc_curve(model, X_test, y_test, model_name: str) -> Path:
     y_proba = model.predict_proba(X_test)[:, 1]
     fpr, tpr, _ = roc_curve(y_test, y_proba)
     auc = roc_auc_score(y_test, y_proba)
@@ -279,9 +277,14 @@ def plot_roc_curve(model, X_test, y_test, model_name: str)-> Path:
     plt.close()
     return roc_path
 
-def save_classification_report(model, X_test, y_test, model_name: str)-> Path:
+
+def save_classification_report(
+    model, X_test, y_test, model_name: str
+) -> Path:
     y_pred = model.predict(X_test)
-    classification_report_path = VISUALS_DIR / f"classification_report_{model_name}.csv"
+    classification_report_path = (
+        VISUALS_DIR / f"classification_report_{model_name}.csv"
+    )
     print(f"\nClassification Report – {model_name}")
     print(classification_report(y_test, y_pred, zero_division=0))
 
@@ -289,11 +292,10 @@ def save_classification_report(model, X_test, y_test, model_name: str)-> Path:
         y_test, y_pred, output_dict=True, zero_division=0
     )
 
-    pd.DataFrame(report_dict).transpose().to_csv(
-        classification_report_path
-    )
-    
+    pd.DataFrame(report_dict).transpose().to_csv(classification_report_path)
+
     return classification_report_path
+
 
 def log_to_bigquery(project_id, table_id, row):
     client = bigquery.Client(project=project_id)
@@ -303,16 +305,16 @@ def log_to_bigquery(project_id, table_id, row):
     else:
         print("Logged to BigQuery successfully.")
 
+
 def fetch_best_config(project_id, pr_number):
     client = bigquery.Client(project=project_id)
-    # LOGIC UPDATE: Select best accuracy ONLY from the latest run_id for this PR
     query = f"""
-        SELECT config_params 
+        SELECT config_params
         FROM `{project_id}.ml_metadata.experiments`
         WHERE pr_number = {pr_number}
         AND run_id = (
-            SELECT MAX(run_id) 
-            FROM `{project_id}.ml_metadata.experiments` 
+            SELECT MAX(run_id)
+            FROM `{project_id}.ml_metadata.experiments`
             WHERE pr_number = {pr_number}
         )
         ORDER BY accuracy DESC
@@ -320,47 +322,75 @@ def fetch_best_config(project_id, pr_number):
     """
     query_job = client.query(query)
     results = list(query_job.result())
-    
+
     if not results:
         print(f"No experiments found for PR {pr_number}.")
         return None
-    
+
     import ast
+
     return ast.literal_eval(results[0].config_params)
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
-    parser.add_argument("--mode", choices=['experiment', 'full_training'], required=True)
+    parser.add_argument(
+        "--mode", choices=["experiment", "full_training"], required=True
+    )
     parser.add_argument("--pr-number", type=int, required=True)
-    parser.add_argument("--model-type", choices=['logistic_regression', 'random_forest'], default='logistic_regression')
+    parser.add_argument(
+        "--model-type",
+        choices=["logistic_regression", "random_forest"],
+        default="logistic_regression",
+    )
     args = parser.parse_args()
 
     project_id = bigquery.Client().project
     bucket_name = args.model_dir.replace("gs://", "").split("/")[0]
-    
+
     df = load_data(bucket_name, args.pr_number)
 
-    if args.mode == 'full_training':
-        print(f"Production Training: Fetching best config for PR {args.pr_number}")
-        best_config = fetch_best_config(project_id, args.pr_number)
-        config = best_config if best_config else {"model_type": args.model_type}
-    else:
-        config = {"model_type": args.model_type}
+    is_experiment = args.mode != "full_training"
 
-    model, scaler, metrics, artifacts, feature_columns = train_model(df, config)
-    
-    # Save Model Locally
+    if args.mode == "full_training":
+        print(
+            f"Production Training: Fetching best config for "
+            f"PR {args.pr_number}"
+        )
+        best_config = fetch_best_config(project_id, args.pr_number)
+        config = (
+            best_config
+            if best_config
+            else {"model_type": args.model_type}
+        )
+    else:
+        config = {}
+
+    config["model_type"] = args.model_type
+    config["isExperiment"] = is_experiment
+
+    model, scaler, metrics, artifacts, feature_columns = train_model(
+        df, config
+    )
+
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     local_model_path = "/tmp/model.pkl"
     with open(local_model_path, "wb") as f:
-        pickle.dump({"model": model, "scaler": scaler, "config": config, "feature_columns": feature_columns}, f)
+        pickle.dump(
+            {
+                "model": model,
+                "scaler": scaler,
+                "config": config,
+                "feature_columns": feature_columns,
+            },
+            f,
+        )
 
     client_gcs = storage.Client(project=project_id)
     bucket = client_gcs.bucket(bucket_name)
 
-    # Determine Destination Paths
-    if args.mode == 'experiment':
+    if args.mode == "experiment":
         subpath = f"experiments/pr-{args.pr_number}/{timestamp}"
         tracking_row = {
             "run_id": timestamp,
@@ -375,9 +405,10 @@ def main():
             "gcs_path": f"gs://{bucket_name}/{subpath}",
             "config_params": json.dumps(config),
         }
-        log_to_bigquery(project_id, f"{project_id}.ml_metadata.experiments", tracking_row)
+        log_to_bigquery(
+            project_id, f"{project_id}.ml_metadata.experiments", tracking_row
+        )
     else:
-        # PRODUCTION MODE
         subpath = f"production/model_v_{args.pr_number}"
         prod_row = {
             "model_id": f"heart-model-v{args.pr_number}",
@@ -387,22 +418,21 @@ def main():
             "accuracy_at_deploy": metrics["accuracy"],
             "roc_auc_at_deploy": metrics["roc_auc"],
         }
-        log_to_bigquery(project_id, f"{project_id}.ml_metadata.production_models", prod_row)
+        log_to_bigquery(
+            project_id,
+            f"{project_id}.ml_metadata.production_models",
+            prod_row,
+        )
 
-    # --- UPLOAD MODEL & ARTIFACTS ---
     print(f"Uploading artifacts to {subpath}...")
-    
-    # 1. Model
+
     bucket.blob(f"{subpath}/model.pkl").upload_from_filename(local_model_path)
-    
-    # 2. Images (Confusion Matrix, etc.)
+
     for local_file, remote_name in artifacts:
         blob_path = f"{subpath}/{remote_name}"
         bucket.blob(blob_path).upload_from_filename(local_file)
         print(f" - Uploaded: {remote_name}")
 
-    # --- ADDED: PRINT METRICS FOR GITHUB ACTIONS LOG SCRAPER ---
-    # This allows the runner to see the metrics without needing BigQuery permissions
     final_metrics = {
         "run_id": timestamp,
         "model_type": metrics["model"],
@@ -415,6 +445,7 @@ def main():
     }
 
     print(f"__METRICS__:{json.dumps(final_metrics)}")
+
 
 if __name__ == "__main__":
     main()
