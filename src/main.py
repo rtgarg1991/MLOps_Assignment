@@ -107,7 +107,6 @@ async def lifespan(app: FastAPI):
                 "thal",
             ],
         }
-
     yield
     model_artifacts = None
 
