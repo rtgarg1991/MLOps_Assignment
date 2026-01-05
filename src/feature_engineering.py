@@ -86,7 +86,6 @@ def one_hot_encode_features(
             f.write(col + "\n")
 
     print(f"Feature column list saved to {FEATURE_LIST_PATH}")
-
     return df_final
 
 

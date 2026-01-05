@@ -117,6 +117,7 @@ def main():
 
     # Log to BigQuery
     client_bq = bigquery.Client()
+
     bigquery.Client().insert_rows_json(
         f"{client_bq.project}.ml_metadata.data_versions",
         [
