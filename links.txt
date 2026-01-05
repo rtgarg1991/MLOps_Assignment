@@ -1,0 +1,27 @@
+Links:
+ 
+Repository: https://github.com/rtgarg1991/MLOps_Assignment
+ 
+Video URL:
+ 
+ML Flow URL: http://35.223.97.193:5000/#/experiments/1/runs?searchFilter=&orderByKey=attributes.start_time&a…
+ 
+API URL:  http://34.27.233.251/predict
+ 
+curl --location 'http://34.27.233.251/predict' \
+--header 'Content-Type: application/json' \
+--data '{
+    "age": 32,
+    "sex": 1,
+    "cp": 0,
+    "trestbps": 160,
+    "chol": 26,
+    "fbs": 0,
+    "restecg": 2,
+    "thalach": 108,
+    "exang": 1,
+    "oldpeak": 1.5,
+    "slope": 2,
+    "ca": 3,
+    "thal": 3
+}'
