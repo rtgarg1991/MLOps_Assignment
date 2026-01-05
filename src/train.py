@@ -370,7 +370,6 @@ def main():
         config = {"model_type": args.model_type}
 
     config["isExperiment"] = is_experiment
-
     model, scaler, metrics, artifacts, feature_columns = train_model(
         df, config
     )

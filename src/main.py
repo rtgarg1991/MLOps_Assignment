@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
     if os.path.exists(MODEL_PATH):
         with open(MODEL_PATH, "rb") as f:
             model_artifacts = pickle.load(f)
+
         logger.info(f"Successfully loaded real model from {MODEL_PATH}")
     else:
         logger.warning(f"Model not found at {MODEL_PATH}. Using DUMMY model.")
