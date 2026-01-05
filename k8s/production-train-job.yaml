@@ -17,5 +17,4 @@ spec:
           - "--model-dir=gs://${BUCKET_NAME}"
           - "--mode=full_training"
           - "--pr-number=${PR_NUMBER}"
-          - "--model-type=${MODEL_TYPE}"
       restartPolicy: Never
