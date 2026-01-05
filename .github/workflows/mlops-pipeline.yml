@@ -198,18 +198,46 @@ jobs:
         envsubst < k8s/universal-job.yaml | kubectl apply -f -
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=5m
 
-    - name: Run Training
-      if: |
-        github.event_name == 'pull_request' ||
-        (needs.changes.outputs.train == 'true' || needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true')
+    - name: Run Experiment Training (PR - 2 Models)
+      if: github.event_name == 'pull_request'
       run: |
         export JOB_NAME=train-$SHORT_SHA
         export BUCKET_NAME=${BUCKET_NAME}
-        export MODE=${MODE}
+        export MODE=experiment
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
         envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
+
+        kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
+
+    - name: Run Production Training (Merge - Best Model Only)
+      if: |
+        github.event_name == 'push' &&
+        (needs.changes.outputs.train == 'true' || needs.changes.outputs.data == 'true' || needs.changes.outputs.prep == 'true' || needs.changes.outputs.feat == 'true')
+      run: |
+        export JOB_NAME=train-$SHORT_SHA
+        export BUCKET_NAME=${BUCKET_NAME}
+        export PR_NUMBER=${PR_NUMBER}
+        export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+
+        # Fetch the best model type from BigQuery experiments table
+        BEST_MODEL=$(bq query --use_legacy_sql=false --format=csv --quiet \
+          "SELECT JSON_VALUE(config_params, '$.model_type') as model_type
+           FROM \`$PROJECT_ID.ml_metadata.experiments\`
+           WHERE pr_number = ${PR_NUMBER}
+           ORDER BY accuracy DESC
+           LIMIT 1" | tail -1)
+
+        if [ -z "$BEST_MODEL" ] || [ "$BEST_MODEL" == "null" ]; then
+          echo "No experiments found for PR ${PR_NUMBER}, defaulting to logistic_regression"
+          BEST_MODEL="logistic_regression"
+        fi
+
+        echo "Best model from experiments: $BEST_MODEL"
+        export MODEL_TYPE=$BEST_MODEL
+
+        envsubst '${JOB_NAME} ${BUCKET_NAME} ${PR_NUMBER} ${IMAGE} ${MODEL_TYPE}' < k8s/production-train-job.yaml | kubectl apply -f -
 
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
 
