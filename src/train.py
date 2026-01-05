@@ -327,9 +327,7 @@ def fetch_best_config(project_id, pr_number):
         print(f"No experiments found for PR {pr_number}.")
         return None
 
-    import ast
-
-    return ast.literal_eval(results[0].config_params)
+    return json.loads(results[0].config_params)
 
 
 def main():
@@ -360,9 +358,7 @@ def main():
         )
         best_config = fetch_best_config(project_id, args.pr_number)
         config = (
-            best_config
-            if best_config
-            else {"model_type": args.model_type}
+            best_config if best_config else {"model_type": args.model_type}
         )
     else:
         config = {}
