@@ -24,7 +24,6 @@ COLUMNS = [
 ]
 
 PROJECT_ROOT = Path.cwd()
-
 DATA_DIR = PROJECT_ROOT / "data"
 VISUALS_DIR = PROJECT_ROOT / "visuals"
 

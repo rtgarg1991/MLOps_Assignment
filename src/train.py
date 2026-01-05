@@ -358,13 +358,17 @@ def main():
             f"PR {args.pr_number}"
         )
         best_config = fetch_best_config(project_id, args.pr_number)
-        config = (
-            best_config if best_config else {"model_type": args.model_type}
-        )
+        if best_config:
+            config = best_config
+            print(f"Using best config: {config}")
+        else:
+            # Fallback to CLI arg if no experiments found
+            config = {"model_type": args.model_type}
+            print(f"No experiments found, using default: {config}")
     else:
-        config = {}
+        # Experiment mode - use CLI arg
+        config = {"model_type": args.model_type}
 
-    config["model_type"] = args.model_type
     config["isExperiment"] = is_experiment
 
     model, scaler, metrics, artifacts, feature_columns = train_model(
