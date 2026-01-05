@@ -85,6 +85,7 @@ def main():
         "status": "experiment",
         "created_at": datetime.now().isoformat(),
     }
+
     client_bq.insert_rows_json(table_id, [tracking_row])
 
 

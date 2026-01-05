@@ -68,7 +68,7 @@ def load_data(bucket_name, pr_number):
     input_uri = f"gs://{bucket_name}/{input_path}"
     print(f"Training loading features from: {input_uri}")
 
-    return pd.read_csv(input_uri)
+    return pd.read_csv(input_uri), input_path
 
 
 def split_data(
@@ -349,7 +349,7 @@ def main():
     project_id = bigquery.Client().project
     bucket_name = args.model_dir.replace("gs://", "").split("/")[0]
 
-    df = load_data(bucket_name, args.pr_number)
+    df, data_path = load_data(bucket_name, args.pr_number)
 
     is_experiment = args.mode != "full_training"
 
@@ -404,6 +404,7 @@ def main():
             "roc_auc": metrics["roc_auc"],
             "gcs_path": f"gs://{bucket_name}/{subpath}",
             "config_params": json.dumps(config),
+            "data_path": data_path,
         }
         log_to_bigquery(
             project_id, f"{project_id}.ml_metadata.experiments", tracking_row
@@ -414,9 +415,11 @@ def main():
             "model_id": f"heart-model-v{args.pr_number}",
             "version_tag": str(args.pr_number),
             "deployment_date": datetime.now().isoformat(),
+            "model_type": metrics["model"],
             "is_active": True,
             "accuracy_at_deploy": metrics["accuracy"],
             "roc_auc_at_deploy": metrics["roc_auc"],
+            "data_path": data_path,
         }
         log_to_bigquery(
             project_id,
