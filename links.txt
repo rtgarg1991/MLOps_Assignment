@@ -2,7 +2,7 @@ Links:
  
 Repository: https://github.com/rtgarg1991/MLOps_Assignment
  
-Video URL:
+Video URL: https://drive.google.com/file/d/1O799EQxUHTU_TJk9Qqf_XBKewwejzv9o/view?usp=drive_link
  
 ML Flow URL: http://35.223.97.193:5000/#/experiments/1/runs?searchFilter=&orderByKey=attributes.start_time&a…
  
