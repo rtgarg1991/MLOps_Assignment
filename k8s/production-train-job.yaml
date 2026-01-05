@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+spec:
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: mlops-trainer
+      containers:
+      - name: trainer
+        image: ${IMAGE}
+        command: ["python", "src/train.py"]
+        args:
+          - "--model-dir=gs://${BUCKET_NAME}"
+          - "--mode=full_training"
+          - "--pr-number=${PR_NUMBER}"
+          - "--model-type=${MODEL_TYPE}"
+      restartPolicy: Never
