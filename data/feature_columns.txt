@@ -1,3 +1,1 @@
 age
-sex_0
-sex_1
