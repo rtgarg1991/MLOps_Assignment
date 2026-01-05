@@ -207,6 +207,9 @@ jobs:
         export PR_NUMBER=${PR_NUMBER}
         export IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
 
+        # Delete any existing job with same name to prevent conflicts
+        kubectl delete job $JOB_NAME --ignore-not-found=true
+
         envsubst '${JOB_NAME} ${BUCKET_NAME} ${MODE} ${PR_NUMBER} ${IMAGE}' < k8s/parallel-train-job.yaml | kubectl apply -f -
 
         kubectl wait --for=condition=complete job/$JOB_NAME --timeout=10m
@@ -236,6 +239,9 @@ jobs:
 
         echo "Best model from experiments: $BEST_MODEL"
         export MODEL_TYPE=$BEST_MODEL
+
+        # Delete any existing job with same name to prevent conflicts
+        kubectl delete job $JOB_NAME --ignore-not-found=true
 
         envsubst '${JOB_NAME} ${BUCKET_NAME} ${PR_NUMBER} ${IMAGE} ${MODEL_TYPE}' < k8s/production-train-job.yaml | kubectl apply -f -
 

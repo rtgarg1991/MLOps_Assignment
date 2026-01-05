@@ -27,7 +27,6 @@ TARGET_COLUMN = "num"
 
 def run_eda(df: pd.DataFrame):
     print("Running EDA (before cleaning)...")
-
     artifacts = []
 
     # ---------------- Missing values ----------------

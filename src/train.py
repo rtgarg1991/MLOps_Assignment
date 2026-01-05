@@ -65,6 +65,7 @@ def load_data(bucket_name, pr_number):
     input_path = (
         pr_feat_path if bucket.blob(pr_feat_path).exists() else prod_feat_path
     )
+
     input_uri = f"gs://{bucket_name}/{input_path}"
     print(f"Training loading features from: {input_uri}")
 
